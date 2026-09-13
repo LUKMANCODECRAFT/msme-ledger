@@ -46,7 +46,7 @@ function App() {
         <p>
           &copy; {new Date().getFullYear()} Lukman Code Craft. 
           <a 
-            href="https://notion.so/" 
+            href="https://docs.google.com/document/d/11sDF_EK3LC1Q2KgApzt9qXu7oNCa5bG_Y2TfqkxR2Hw/edit?usp=sharing" 
             target="_blank" 
             rel="noopener noreferrer" 
             className="ml-2 underline hover:text-white transition-colors"
