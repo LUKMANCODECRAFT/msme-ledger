@@ -40,6 +40,21 @@ function App() {
         {activeTab === 'sales' && <SalesHistory />}
         {activeTab === 'debtors' && <Debtors />}
       </div>
+
+      {/* Global Legal Footer */}
+      <footer className="bg-slate-900 text-slate-400 py-3 text-center text-xs">
+        <p>
+          &copy; {new Date().getFullYear()} Lukman Code Craft. 
+          <a 
+            href="https://notion.so/" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="ml-2 underline hover:text-white transition-colors"
+          >
+            Terms & Privacy
+          </a>
+        </p>
+      </footer>
     </div>
   );
 }
