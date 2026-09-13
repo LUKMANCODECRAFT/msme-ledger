@@ -2,6 +2,7 @@ import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import { processSync } from './controllers/syncController.js';
+import { getSystemStats } from './controllers/adminController.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -13,6 +14,9 @@ app.use(express.json());
 
 // Milestone 6: Wire the Background Sync Route
 app.post('/api/v1/sync', processSync);
+
+// Admin Metrics Route
+app.get('/api/v1/admin/stats', getSystemStats);
 
 // Database Connection & Server Initialization
 mongoose.connect(MONGO_URI)

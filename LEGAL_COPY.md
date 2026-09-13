@@ -1,30 +1,20 @@
-# Terms & Privacy Policy
+# Terms of Service
+*Last Updated: September 2026*
 
-**Effective Date:** 2026
+Welcome to the MSME Ledger, a proprietary software application developed and maintained by Lukman Code Craft (LCC). By accessing or using our application, you agree to these terms.
 
-## 1. Terms and Conditions
-
-### 1.1 "As-Is" Clause
-The Anti-Paper MSME Ledger is provided strictly "as is" and "as available," without warranties of any kind, either express or implied. Lukman Code Craft (LCC) is not legally or financially liable for any loss of ledger data, revenue, or business disruption resulting from network errors, device failures, browser crashes, or software bugs. By using this software, you assume all risks associated with local and cloud data storage.
-
-### 1.2 WhatsApp Policy & Acceptable Use
-This application includes functionality to generate WhatsApp deep links for debt recovery. Users are strictly prohibited from using this tool to spam, harass, or abuse individuals. The deep-link feature must only be used to send legitimate, professional debt reminders to customers who have an established business relationship with you.
-
-### 1.3 Intellectual Property & Software Licensing
-This software is a closed-source, proprietary commercial asset. Lukman Code Craft retains 100% ownership of the code, design, and architecture. By using the MSME Ledger, you are granted a temporary, revocable, non-exclusive license to use the software. You may not copy, reverse-engineer, or redistribute the source code without explicit written consent.
+* **Software License & Intellectual Property:** LCC grants you a limited, non-exclusive, revocable license to use the MSME Ledger for your internal business operations. All source code, architecture, and branding remain the exclusive intellectual property of Lukman Code Craft.
+* **Limitation of Liability (The "As-Is" Clause):** The MSME Ledger relies on local device storage and background synchronization. It is provided strictly "as is." LCC is not legally or financially responsible for any loss of data, corrupted ledgers, or unrecorded sales resulting from hardware failure, browser cache clearing, or network drops.
+* **Acceptable Use & Messaging:** The application provides automated deep-links to WhatsApp for business communication. You agree to use this feature solely for legitimate, professional debt reminders and receipt generation. You may not use this tool to spam, harass, or threaten individuals.
+* **Service Modifications:** LCC reserves the right to modify pricing, features, or access to the premium tiers of the application at any time.
 
 ---
 
-## 2. Privacy Policy
+# Privacy Policy
 
-### 2.1 Data Storage and Security
-We take data protection seriously. The shop owner's data, as well as their customers' names and phone numbers, are encrypted and securely stored in our cloud infrastructure (MongoDB). Local data required for offline functionality is stored in your device's IndexedDB.
+Lukman Code Craft respects your privacy and the privacy of your customers. This policy outlines how we handle the data processed through the MSME Ledger.
 
-### 2.2 Data Sharing
-We do not sell, rent, or trade your data or your customers' data to third-party advertisers or external data brokers under any circumstances.
-
-### 2.3 Shop Owner Responsibilities
-As the shop owner utilizing the MSME Ledger, you are acting as the data controller for your customers' information. You are entirely responsible for ensuring that you have obtained the necessary permissions and consent from your customers to store their names and phone numbers, and to send them communications via WhatsApp.
-
-### 2.4 Cookies (Strictly Necessary)
-The MSME Ledger does not use third-party tracking cookies (such as Google Analytics or Meta Pixels) to track you across the internet. We exclusively use local storage mechanisms (IndexedDB) that are strictly necessary for the application's offline-first functional capabilities. Therefore, a cookie consent banner is not required for the operation of this application.
+* **Local & Cloud Data Storage:** To provide offline capabilities, the application temporarily stores your business data (sales, inventory, and customer phone numbers) directly on your device using browser storage. When an internet connection is detected, this data is synchronized and encrypted in our secure cloud database.
+* **Zero Third-Party Tracking:** We do not use third-party marketing cookies, tracking pixels, or advertising scripts. We only utilize local storage for strictly necessary, functional application performance.
+* **Data Protection:** LCC will never sell, rent, or distribute your business data or your customers' contact information to third-party data brokers or advertisers.
+* **Merchant Responsibility:** As the business owner operating the application, you act as the data controller for your customers. It is your sole responsibility to ensure you have the appropriate consent from your customers before logging their phone numbers or sending them automated WhatsApp messages.
