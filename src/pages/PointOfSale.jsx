@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { msme_ledger_db, usePendingSyncCount } from '../config/db.js';
-import { recordSale } from '../services/ledgerService.js';
+import { recordSale, createCustomer, addInventory } from '../services/ledgerService.js';
+import { pushPendingData } from '../services/syncService.js';
 
 const formatNaira = (koboAmount) => {
   return new Intl.NumberFormat('en-NG', {
@@ -13,7 +14,7 @@ const formatNaira = (koboAmount) => {
 
 export default function PointOfSale() {
   const pendingCount = usePendingSyncCount();
-  
+
   const customers = useLiveQuery(() => msme_ledger_db.customers.toArray()) || [];
   const inventory = useLiveQuery(() => msme_ledger_db.inventory.toArray()) || [];
 
@@ -21,6 +22,22 @@ export default function PointOfSale() {
   const [cart, setCart] = useState({}); // Shape: { [inventoryId]: { item, quantity } }
   const [amountPaidInput, setAmountPaidInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSeedData = async () => {
+    try {
+      await createCustomer({ name: 'John Doe', phone: '09132555203' });
+      await createCustomer({ name: 'Jane Smith', phone: '09132555203' });
+
+      // Note: Prices are in Kobo
+      await addInventory({ itemName: 'Organic Fertilizer', price: 500000, stockCount: 50 });
+      await addInventory({ itemName: 'Premium Seeds', price: 250000, stockCount: 100 });
+      await addInventory({ itemName: 'Tractor Rental', price: 1500000, stockCount: 5 });
+
+      alert('Seed data added successfully!');
+    } catch (e) {
+      alert('Error seeding data: ' + e.message);
+    }
+  };
 
   const cartItems = Object.values(cart);
 
@@ -34,7 +51,7 @@ export default function PointOfSale() {
     setCart((prev) => {
       const existing = prev[item.id];
       const newQuantity = existing ? existing.quantity + 1 : 1;
-      
+
       if (newQuantity > item.stockCount) {
         alert("Cannot add more than available stock.");
         return prev;
@@ -93,7 +110,7 @@ export default function PointOfSale() {
     }
 
     setIsSubmitting(true);
-    
+
     try {
       const itemsPayload = cartItems.map(cartItem => ({
         inventoryId: cartItem.item.id,
@@ -128,14 +145,36 @@ export default function PointOfSale() {
       {/* 2. The Offline-Aware Header */}
       <header className="bg-slate-900 text-slate-50 p-4 flex items-center justify-between shadow-md z-10 relative">
         <h1 className="text-xl font-bold tracking-tight">MSME Ledger</h1>
-        <div className="text-sm font-medium px-3 py-1 bg-slate-800 rounded-full border border-slate-700">
-          {pendingCount > 0 ? `Sync Queue: ${pendingCount}` : "Synced"}
+        <div className="flex items-center gap-3">
+          {(customers.length === 0 && inventory.length === 0) && (
+            <button
+              onClick={handleSeedData}
+              className="text-xs font-bold px-3 py-1 bg-emerald-600 hover:bg-emerald-700 rounded transition-colors"
+            >
+              Seed Data
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              if (pendingCount > 0) {
+                pushPendingData().then(() => alert('Manual sync process initiated! Check the backend terminal.'));
+              }
+            }}
+            className={`text-sm font-medium px-3 py-1 rounded-full border transition-all ${pendingCount > 0
+                ? 'bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200 cursor-pointer shadow-sm active:scale-95'
+                : 'bg-emerald-800 text-emerald-100 border-emerald-700 cursor-default'
+              }`}
+            title={pendingCount > 0 ? "Click to force a manual sync to MongoDB" : "All data is securely backed up"}
+          >
+            {pendingCount > 0 ? `Sync Queue: ${pendingCount} (Force Sync)` : "✓ Synced"}
+          </button>
         </div>
       </header>
 
       {/* 3. The Fast-Entry Layout */}
       <main className="flex-1 p-4 flex flex-col md:flex-row gap-6 max-w-7xl mx-auto w-full">
-        
+
         {/* Left Column: Selection Areas */}
         <div className="flex-1 flex flex-col gap-6">
           {/* Section A: Customer Selection */}
@@ -143,8 +182,8 @@ export default function PointOfSale() {
             <label htmlFor="customerSelect" className="block text-sm font-semibold text-slate-700 mb-2">
               Select Customer
             </label>
-            <select 
-              id="customerSelect" 
+            <select
+              id="customerSelect"
               className="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 transition-colors"
               value={selectedCustomerId}
               onChange={(e) => setSelectedCustomerId(e.target.value)}
@@ -165,17 +204,16 @@ export default function PointOfSale() {
               {inventory.map((item) => {
                 const stockRemaining = item.stockCount - (cart[item.id]?.quantity || 0);
                 const isOutOfStock = stockRemaining <= 0;
-                
+
                 return (
-                  <button 
+                  <button
                     key={item.id}
                     onClick={() => handleAddToCart(item)}
                     disabled={isOutOfStock}
-                    className={`flex flex-col p-4 rounded-lg border text-left transition-all ${
-                      isOutOfStock 
-                        ? 'bg-slate-100 border-slate-200 opacity-60 cursor-not-allowed' 
+                    className={`flex flex-col p-4 rounded-lg border text-left transition-all ${isOutOfStock
+                        ? 'bg-slate-100 border-slate-200 opacity-60 cursor-not-allowed'
                         : 'bg-white border-slate-300 hover:border-emerald-600 hover:shadow-md active:bg-emerald-50'
-                    }`}
+                      }`}
                   >
                     <span className="font-semibold text-slate-900 truncate w-full">{item.itemName}</span>
                     <span className="text-emerald-700 font-bold mt-1">{formatNaira(item.price)}</span>
@@ -195,7 +233,7 @@ export default function PointOfSale() {
         {/* Right Column: Cart & Checkout (Section C) */}
         <aside className="w-full md:w-96 bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col h-auto md:max-h-[calc(100vh-8rem)]">
           <h2 className="text-lg font-semibold text-slate-800 mb-4 border-b border-slate-200 pb-2">Cart & Checkout</h2>
-          
+
           <div className="flex-1 overflow-y-auto min-h-[200px] mb-4 pr-1">
             {cartItems.length === 0 ? (
               <p className="text-slate-500 text-sm text-center mt-8 font-medium">Cart is empty.</p>
@@ -208,7 +246,7 @@ export default function PointOfSale() {
                       <span className="text-xs text-slate-500 font-medium">{formatNaira(cartItem.item.price)} each</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button 
+                      <button
                         type="button"
                         onClick={() => handleUpdateQuantity(cartItem.item.id, cartItem.quantity - 1)}
                         className="w-8 h-8 flex items-center justify-center bg-white border border-slate-300 rounded-md hover:bg-slate-100 text-slate-600 font-bold active:bg-slate-200 transition-colors"
@@ -216,7 +254,7 @@ export default function PointOfSale() {
                         -
                       </button>
                       <span className="w-6 text-center text-sm font-bold text-slate-900">{cartItem.quantity}</span>
-                      <button 
+                      <button
                         type="button"
                         onClick={() => handleUpdateQuantity(cartItem.item.id, cartItem.quantity + 1)}
                         className="w-8 h-8 flex items-center justify-center bg-white border border-slate-300 rounded-md hover:bg-slate-100 text-slate-600 font-bold active:bg-slate-200 transition-colors"
@@ -235,14 +273,14 @@ export default function PointOfSale() {
               <span className="text-slate-600 font-bold">Total Amount:</span>
               <span className="text-xl font-black text-emerald-700">{formatNaira(totalAmountKobo)}</span>
             </div>
-            
+
             <div className="flex flex-col">
               <label htmlFor="amountPaid" className="text-sm font-bold text-slate-700 mb-2">
                 Amount Paid (NGN)
               </label>
-              <input 
+              <input
                 id="amountPaid"
-                type="number" 
+                type="number"
                 step="0.01"
                 min="0"
                 required
@@ -253,8 +291,8 @@ export default function PointOfSale() {
               />
             </div>
 
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               disabled={isSubmitting || cartItems.length === 0}
               className="w-full py-4 px-6 bg-emerald-600 text-white text-lg font-black rounded-lg hover:bg-emerald-700 active:bg-emerald-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg active:shadow-sm"
             >
