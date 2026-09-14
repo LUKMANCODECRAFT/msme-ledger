@@ -3,15 +3,23 @@ import PointOfSale from './pages/PointOfSale';
 import Debtors from './pages/Debtors';
 import SalesHistory from './pages/SalesHistory';
 import { useBackgroundSync } from './hooks/useBackgroundSync';
+import { isTrialExpired } from './utils/shopIdentity.js';
 
 function App() {
   // Initialize the background sync engine
   useBackgroundSync();
 
   const [activeTab, setActiveTab] = useState('pos');
+  const isExpired = isTrialExpired();
 
   return (
     <div className="flex flex-col min-h-screen bg-slate-100">
+      {isExpired && (
+        <div className="bg-red-600 text-white font-bold text-center py-3 px-4 shadow-md z-50 sticky top-0 uppercase tracking-wide">
+          Trial Expired. App is in Read-Only Mode. Please contact Lukman Code Craft to upgrade.
+        </div>
+      )}
+
       {/* Global Navigation */}
       <nav className="bg-slate-950 p-3 flex gap-3 justify-center shadow-lg z-20 relative">
         <button 
@@ -36,9 +44,9 @@ function App() {
 
       {/* Main Content Area */}
       <div className="flex-1 w-full">
-        {activeTab === 'pos' && <PointOfSale />}
-        {activeTab === 'sales' && <SalesHistory />}
-        {activeTab === 'debtors' && <Debtors />}
+        {activeTab === 'pos' && <PointOfSale isExpired={isExpired} />}
+        {activeTab === 'sales' && <SalesHistory isExpired={isExpired} />}
+        {activeTab === 'debtors' && <Debtors isExpired={isExpired} />}
       </div>
 
       {/* Global Legal Footer */}

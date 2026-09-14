@@ -1,4 +1,5 @@
 import { Customer, Inventory, Sale } from '../models/Ledger.js';
+import { License } from '../models/License.js';
 
 /**
  * Helper function to map an array of records to Mongoose bulkWrite upsert operations.
@@ -27,6 +28,12 @@ export const processSync = async (req, res) => {
     // Security Check: Enforce Multi-Tenant Data Isolation
     if (!shopId) {
       return res.status(400).json({ success: false, message: 'Bad Request: Missing shopId' });
+    }
+
+    // Backend Firewall: Enforce Read-Only Mode for Expired Licenses
+    const license = await License.findOne({ shopId });
+    if (license && license.status === 'expired') {
+      return res.status(403).json({ success: false, message: 'Subscription expired. Read-only mode enforced.' });
     }
 
     // Track our concurrent bulk operations
