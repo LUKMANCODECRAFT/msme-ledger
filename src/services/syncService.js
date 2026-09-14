@@ -1,4 +1,5 @@
 import { msme_ledger_db } from '../config/db.js';
+import { getShopId } from '../utils/shopIdentity.js';
 
 /**
  * Pushes pending local data to the remote server and marks it as synced.
@@ -18,8 +19,9 @@ export async function pushPendingData() {
       return;
     }
 
-    // 3. Construct master payload
+    // 3. Construct master payload with multi-tenant identity
     const payload = {
+      shopId: getShopId(),
       customers,
       inventory,
       sales

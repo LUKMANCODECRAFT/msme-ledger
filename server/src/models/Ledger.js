@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 
 const customerSchema = new mongoose.Schema({
+  shopId: { type: String, required: true, index: true },
   id: { type: String, required: true, unique: true },
   name: { type: String },
   phone: { type: String },
@@ -8,6 +9,7 @@ const customerSchema = new mongoose.Schema({
 }, { versionKey: false });
 
 const inventorySchema = new mongoose.Schema({
+  shopId: { type: String, required: true, index: true },
   id: { type: String, required: true, unique: true },
   itemName: { type: String },
   price: { type: Number },
@@ -15,6 +17,7 @@ const inventorySchema = new mongoose.Schema({
 }, { versionKey: false });
 
 const saleSchema = new mongoose.Schema({
+  shopId: { type: String, required: true, index: true },
   id: { type: String, required: true, unique: true },
   customerId: { type: String },
   items: { type: Array },

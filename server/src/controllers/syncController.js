@@ -3,13 +3,14 @@ import { Customer, Inventory, Sale } from '../models/Ledger.js';
 /**
  * Helper function to map an array of records to Mongoose bulkWrite upsert operations.
  * @param {Array} dataArray - The array of records from the sync payload
+ * @param {string} shopId - The verified persistent shop identifier
  * @returns {Array} - Array of Mongoose updateOne operations
  */
-const buildBulkOps = (dataArray) => {
+const buildBulkOps = (dataArray, shopId) => {
   return dataArray.map(item => ({
     updateOne: {
-      filter: { id: item.id },
-      update: { $set: item },
+      filter: { id: item.id, shopId },
+      update: { $set: { ...item, shopId } },
       upsert: true
     }
   }));
@@ -21,23 +22,28 @@ const buildBulkOps = (dataArray) => {
  */
 export const processSync = async (req, res) => {
   try {
-    const { customers, inventory, sales } = req.body;
+    const { shopId, customers, inventory, sales } = req.body;
     
+    // Security Check: Enforce Multi-Tenant Data Isolation
+    if (!shopId) {
+      return res.status(400).json({ success: false, message: 'Bad Request: Missing shopId' });
+    }
+
     // Track our concurrent bulk operations
     const bulkPromises = [];
 
     if (customers && customers.length > 0) {
-      const customerOps = buildBulkOps(customers);
+      const customerOps = buildBulkOps(customers, shopId);
       bulkPromises.push(Customer.bulkWrite(customerOps));
     }
 
     if (inventory && inventory.length > 0) {
-      const inventoryOps = buildBulkOps(inventory);
+      const inventoryOps = buildBulkOps(inventory, shopId);
       bulkPromises.push(Inventory.bulkWrite(inventoryOps));
     }
 
     if (sales && sales.length > 0) {
-      const salesOps = buildBulkOps(sales);
+      const salesOps = buildBulkOps(sales, shopId);
       bulkPromises.push(Sale.bulkWrite(salesOps));
     }
 
