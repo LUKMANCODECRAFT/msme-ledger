@@ -3,7 +3,8 @@ import PointOfSale from './pages/PointOfSale';
 import Debtors from './pages/Debtors';
 import SalesHistory from './pages/SalesHistory';
 import { useBackgroundSync } from './hooks/useBackgroundSync';
-import { isTrialExpired } from './utils/shopIdentity.js';
+import { isTrialExpired, getShopId } from './utils/shopIdentity.js';
+import ExpiredPaywall from './components/ExpiredPaywall';
 
 function App() {
   // Initialize the background sync engine
@@ -12,13 +13,13 @@ function App() {
   const [activeTab, setActiveTab] = useState('pos');
   const isExpired = isTrialExpired();
 
+  // Hard Component Swap: completely lock the app if expired
+  if (isExpired) {
+    return <ExpiredPaywall shopId={getShopId()} />;
+  }
+
   return (
     <div className="flex flex-col min-h-screen bg-slate-100">
-      {isExpired && (
-        <div className="bg-red-600 text-white font-bold text-center py-3 px-4 shadow-md z-50 sticky top-0 uppercase tracking-wide">
-          Trial Expired. App is in Read-Only Mode. Please contact Lukman Code Craft to upgrade.
-        </div>
-      )}
 
       {/* Global Navigation */}
       <nav className="bg-slate-950 p-3 flex gap-3 justify-center shadow-lg z-20 relative">
