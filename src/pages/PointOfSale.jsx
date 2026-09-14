@@ -23,21 +23,7 @@ export default function PointOfSale() {
   const [amountPaidInput, setAmountPaidInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSeedData = async () => {
-    try {
-      await createCustomer({ name: 'John Doe', phone: '09132555203' });
-      await createCustomer({ name: 'Jane Smith', phone: '09132555203' });
 
-      // Note: Prices are in Kobo
-      await addInventory({ itemName: 'Organic Fertilizer', price: 500000, stockCount: 50 });
-      await addInventory({ itemName: 'Premium Seeds', price: 250000, stockCount: 100 });
-      await addInventory({ itemName: 'Tractor Rental', price: 1500000, stockCount: 5 });
-
-      alert('Seed data added successfully!');
-    } catch (e) {
-      alert('Error seeding data: ' + e.message);
-    }
-  };
 
   const cartItems = Object.values(cart);
 
@@ -144,16 +130,8 @@ export default function PointOfSale() {
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
       {/* 2. The Offline-Aware Header */}
       <header className="bg-slate-900 text-slate-50 p-4 flex items-center justify-between shadow-md z-10 relative">
-        <h1 className="text-xl font-bold tracking-tight">MSME Ledger</h1>
+        <h1 className="text-xl font-bold tracking-tight">{localStorage.getItem('shopName') || 'MSME Ledger'}</h1>
         <div className="flex items-center gap-3">
-          {(customers.length === 0 && inventory.length === 0) && (
-            <button
-              onClick={handleSeedData}
-              className="text-xs font-bold px-3 py-1 bg-emerald-600 hover:bg-emerald-700 rounded transition-colors"
-            >
-              Seed Data
-            </button>
-          )}
           <button
             type="button"
             onClick={() => {

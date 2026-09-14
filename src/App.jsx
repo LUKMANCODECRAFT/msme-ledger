@@ -5,13 +5,20 @@ import SalesHistory from './pages/SalesHistory';
 import { useBackgroundSync } from './hooks/useBackgroundSync';
 import { isTrialExpired, getShopId } from './utils/shopIdentity.js';
 import ExpiredPaywall from './components/ExpiredPaywall';
+import Onboarding from './components/Onboarding';
 
 function App() {
   // Initialize the background sync engine
   useBackgroundSync();
 
+  const [isSetup, setIsSetup] = useState(!!localStorage.getItem('shopName'));
   const [activeTab, setActiveTab] = useState('pos');
   const isExpired = isTrialExpired();
+
+  // Onboarding Gate
+  if (!isSetup) {
+    return <Onboarding onComplete={() => setIsSetup(true)} />;
+  }
 
   // Hard Component Swap: completely lock the app if expired
   if (isExpired) {
