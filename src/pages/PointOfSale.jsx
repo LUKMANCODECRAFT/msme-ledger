@@ -23,6 +23,44 @@ export default function PointOfSale() {
   const [amountPaidInput, setAmountPaidInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // New Record State
+  const [isAddingCustomer, setIsAddingCustomer] = useState(false);
+  const [newCustomerName, setNewCustomerName] = useState('');
+  const [newCustomerPhone, setNewCustomerPhone] = useState('');
+
+  const [isAddingInventory, setIsAddingInventory] = useState(false);
+  const [newInventoryName, setNewInventoryName] = useState('');
+  const [newInventoryPrice, setNewInventoryPrice] = useState('');
+  const [newInventoryStock, setNewInventoryStock] = useState('');
+
+  const handleAddCustomer = async (e) => {
+    e.preventDefault();
+    if (!newCustomerName || !newCustomerPhone) return;
+    try {
+      await createCustomer({ name: newCustomerName, phone: newCustomerPhone });
+      setNewCustomerName('');
+      setNewCustomerPhone('');
+      setIsAddingCustomer(false);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleAddInventory = async (e) => {
+    e.preventDefault();
+    if (!newInventoryName || !newInventoryPrice || !newInventoryStock) return;
+    try {
+      const priceKobo = Math.floor(parseFloat(newInventoryPrice) * 100);
+      await addInventory({ itemName: newInventoryName, price: priceKobo, stockCount: newInventoryStock });
+      setNewInventoryName('');
+      setNewInventoryPrice('');
+      setNewInventoryStock('');
+      setIsAddingInventory(false);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
 
 
   const cartItems = Object.values(cart);
@@ -157,9 +195,42 @@ export default function PointOfSale() {
         <div className="flex-1 flex flex-col gap-6">
           {/* Section A: Customer Selection */}
           <section className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-            <label htmlFor="customerSelect" className="block text-sm font-semibold text-slate-700 mb-2">
-              Select Customer
-            </label>
+            <div className="flex justify-between items-center mb-4">
+              <label htmlFor="customerSelect" className="block text-sm font-semibold text-slate-700">
+                Select Customer
+              </label>
+              <button 
+                onClick={() => setIsAddingCustomer(!isAddingCustomer)}
+                className="text-xs font-bold text-emerald-600 hover:text-emerald-700 transition-colors"
+              >
+                {isAddingCustomer ? 'Cancel' : '+ New Customer'}
+              </button>
+            </div>
+
+            {isAddingCustomer && (
+              <form onSubmit={handleAddCustomer} className="mb-4 p-4 bg-slate-50 border border-slate-200 rounded-lg flex flex-col gap-3">
+                <input 
+                  type="text" 
+                  placeholder="Customer Name" 
+                  required 
+                  value={newCustomerName} 
+                  onChange={e => setNewCustomerName(e.target.value)} 
+                  className="w-full p-3 border border-slate-300 rounded-md focus:ring-2 focus:ring-emerald-600 outline-none"
+                />
+                <input 
+                  type="tel" 
+                  placeholder="Phone Number (Required for WhatsApp)" 
+                  required 
+                  value={newCustomerPhone} 
+                  onChange={e => setNewCustomerPhone(e.target.value)} 
+                  className="w-full p-3 border border-slate-300 rounded-md focus:ring-2 focus:ring-emerald-600 outline-none"
+                />
+                <button type="submit" className="w-full p-3 bg-emerald-600 text-white font-bold rounded-md hover:bg-emerald-700">
+                  Save Customer
+                </button>
+              </form>
+            )}
+
             <select
               id="customerSelect"
               className="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 transition-colors"
@@ -177,7 +248,53 @@ export default function PointOfSale() {
 
           {/* Section B: Inventory Tap-Grid */}
           <section className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex-1 flex flex-col">
-            <h2 className="text-lg font-semibold text-slate-800 mb-4">Inventory</h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold text-slate-800">Inventory</h2>
+              <button 
+                onClick={() => setIsAddingInventory(!isAddingInventory)}
+                className="text-xs font-bold text-emerald-600 hover:text-emerald-700 transition-colors"
+              >
+                {isAddingInventory ? 'Cancel' : '+ New Item'}
+              </button>
+            </div>
+
+            {isAddingInventory && (
+              <form onSubmit={handleAddInventory} className="mb-4 p-4 bg-slate-50 border border-slate-200 rounded-lg flex flex-col gap-3">
+                <input 
+                  type="text" 
+                  placeholder="Item Name" 
+                  required 
+                  value={newInventoryName} 
+                  onChange={e => setNewInventoryName(e.target.value)} 
+                  className="w-full p-3 border border-slate-300 rounded-md focus:ring-2 focus:ring-emerald-600 outline-none"
+                />
+                <div className="flex gap-3">
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    min="0"
+                    placeholder="Price (NGN)" 
+                    required 
+                    value={newInventoryPrice} 
+                    onChange={e => setNewInventoryPrice(e.target.value)} 
+                    className="flex-1 p-3 border border-slate-300 rounded-md focus:ring-2 focus:ring-emerald-600 outline-none"
+                  />
+                  <input 
+                    type="number" 
+                    min="0"
+                    placeholder="Initial Stock" 
+                    required 
+                    value={newInventoryStock} 
+                    onChange={e => setNewInventoryStock(e.target.value)} 
+                    className="flex-1 p-3 border border-slate-300 rounded-md focus:ring-2 focus:ring-emerald-600 outline-none"
+                  />
+                </div>
+                <button type="submit" className="w-full p-3 bg-emerald-600 text-white font-bold rounded-md hover:bg-emerald-700">
+                  Save Inventory Item
+                </button>
+              </form>
+            )}
+
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 overflow-y-auto">
               {inventory.map((item) => {
                 const stockRemaining = item.stockCount - (cart[item.id]?.quantity || 0);
