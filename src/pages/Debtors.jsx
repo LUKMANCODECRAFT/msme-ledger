@@ -47,6 +47,44 @@ export default function Debtors() {
     }
   };
 
+  const handleRecordPayment = async (customerId, currentDebtKobo) => {
+    const currentDebtNaira = currentDebtKobo / 100;
+    const paymentInput = prompt(`Current Debt: ₦${currentDebtNaira.toFixed(2)}\n\nEnter amount paid now (₦):`);
+    
+    if (paymentInput === null) return;
+    
+    const paymentAmountNaira = parseFloat(paymentInput);
+    if (isNaN(paymentAmountNaira) || paymentAmountNaira <= 0) return;
+
+    const paymentAmountKobo = Math.round(paymentAmountNaira * 100);
+
+    if (paymentAmountKobo > currentDebtKobo) {
+      alert("Payment cannot be greater than the total debt!");
+      return;
+    }
+
+    const newBalanceKobo = currentDebtKobo - paymentAmountKobo;
+
+    await msme_ledger_db.customers.update(customerId, { totalDebt: newBalanceKobo });
+
+    await msme_ledger_db.transactions.add({
+      id: crypto.randomUUID(),
+      customerId,
+      type: 'PAYMENT',
+      amount: paymentAmountKobo,
+      date: new Date().toISOString(),
+      sync_status: 'pending'
+    });
+  };
+
+  const getStatusBadge = (balance) => {
+    if (balance <= 0) {
+      return <span className="bg-emerald-100 text-emerald-800 px-2 py-1 rounded text-xs font-bold">Paid</span>;
+    } else {
+      return <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded text-xs font-bold">Outstanding</span>;
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
       <header className="bg-slate-900 text-slate-50 p-4 shadow-md z-10 relative">
@@ -68,7 +106,10 @@ export default function Debtors() {
                 className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center md:justify-between gap-5 transition-all hover:shadow-md hover:border-slate-300"
               >
                 <div className="flex flex-col gap-1">
-                  <h2 className="text-xl font-bold text-slate-800 tracking-tight">{debtor.name}</h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-bold text-slate-800 tracking-tight">{debtor.name}</h2>
+                    {getStatusBadge(debtor.totalDebt)}
+                  </div>
                   <span className="text-sm font-medium text-slate-500">{debtor.phone}</span>
                 </div>
                 
@@ -76,12 +117,18 @@ export default function Debtors() {
                   <span className="text-2xl font-black text-slate-900">
                     {formatNaira(debtor.totalDebt)}
                   </span>
-                  <div className="flex gap-2 w-full md:w-auto mt-2">
+                  <div className="flex gap-2 w-full md:w-auto mt-2 flex-wrap md:flex-nowrap">
+                    <button 
+                      onClick={() => handleRecordPayment(debtor.id, debtor.totalDebt)}
+                      className="flex-1 md:flex-none bg-blue-600 text-white px-3 py-2 text-sm rounded font-medium hover:bg-blue-700 transition-colors shadow-sm"
+                    >
+                      Record Payment
+                    </button>
                     <button 
                       onClick={() => handleClearDebt(debtor.id)}
                       className="flex-1 md:flex-none bg-emerald-600 text-white px-3 py-2 text-sm rounded font-medium hover:bg-emerald-700 transition-colors shadow-sm"
                     >
-                      Mark Paid / Clear Debt
+                      Clear Debt
                     </button>
                     <a 
                       href={generateWhatsAppLink(debtor)}

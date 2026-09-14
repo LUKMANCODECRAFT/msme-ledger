@@ -45,6 +45,13 @@ msme_ledger_db.version(1).stores({
   sales: 'id, customerId, paymentStatus, sync_status, date'
 });
 
+msme_ledger_db.version(2).stores({
+  customers: 'id, phone, sync_status, updatedAt',
+  inventory: 'id, name, sync_status, updatedAt',
+  sales: 'id, customerId, paymentStatus, sync_status, date',
+  transactions: 'id, customerId, type, date, sync_status'
+});
+
 export { msme_ledger_db };
 
 /**
