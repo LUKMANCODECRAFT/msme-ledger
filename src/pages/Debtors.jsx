@@ -41,6 +41,12 @@ export default function Debtors() {
     .filter(customer => customer.totalDebt > 0)
     .sort((a, b) => b.totalDebt - a.totalDebt);
 
+  const handleClearDebt = async (customerId) => {
+    if (window.confirm("Has this customer fully paid their debt?")) {
+      await msme_ledger_db.customers.update(customerId, { totalDebt: 0 });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
       <header className="bg-slate-900 text-slate-50 p-4 shadow-md z-10 relative">
@@ -70,14 +76,22 @@ export default function Debtors() {
                   <span className="text-2xl font-black text-slate-900">
                     {formatNaira(debtor.totalDebt)}
                   </span>
-                  <a 
-                    href={generateWhatsAppLink(debtor)}
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="inline-block text-center py-3 px-5 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 active:bg-emerald-800 transition-colors shadow-sm"
-                  >
-                    Send WhatsApp Reminder
-                  </a>
+                  <div className="flex gap-2 w-full md:w-auto mt-2">
+                    <button 
+                      onClick={() => handleClearDebt(debtor.id)}
+                      className="flex-1 md:flex-none bg-emerald-600 text-white px-3 py-2 text-sm rounded font-medium hover:bg-emerald-700 transition-colors shadow-sm"
+                    >
+                      Mark Paid / Clear Debt
+                    </button>
+                    <a 
+                      href={generateWhatsAppLink(debtor)}
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="flex-1 md:flex-none inline-block text-center py-2 px-3 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-900 transition-colors shadow-sm"
+                    >
+                      WhatsApp
+                    </a>
+                  </div>
                 </div>
               </div>
             ))}
