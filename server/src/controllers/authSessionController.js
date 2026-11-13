@@ -123,6 +123,15 @@ export function createAuthSessionController(tokenService = defaultRefreshTokenSe
           });
         }
 
+        if (err.code === 'REPLAY_CACHE_WRITE_FAILURE') {
+          // Safe abort: cache write failed so R1 remains active. Do not clear cookie.
+          return res.status(503).json({
+            success: false,
+            error: err.code,
+            message: err.message
+          });
+        }
+
         // On authentication failures (expired, compromised, revoked, delivery failure), clear cookie
         res.clearCookie(REFRESH_COOKIE_NAME, clearOptions);
 
@@ -138,26 +147,45 @@ export function createAuthSessionController(tokenService = defaultRefreshTokenSe
     /**
      * POST /api/v2/auth/logout
      * Revokes the active session/token family and clears the refresh cookie.
+     * Fails closed on database revocation errors without falsely returning 200 OK.
      */
     async logout(req, res) {
-      const rawToken = extractRefreshTokenFromRequest(req);
-
-      if (rawToken) {
-        await tokenService.revokeSessionByToken(rawToken);
-      }
-
-      // Always clear cookie idempotently
-      res.clearCookie(REFRESH_COOKIE_NAME, {
+      const clearOptions = {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'strict',
         path: '/api/v2/auth'
-      });
+      };
 
-      return res.status(200).json({
-        success: true,
-        message: 'Logged out successfully.'
-      });
+      // Always clear the browser cookie first
+      res.clearCookie(REFRESH_COOKIE_NAME, clearOptions);
+
+      const rawToken = extractRefreshTokenFromRequest(req);
+
+      if (!rawToken) {
+        return res.status(200).json({
+          success: true,
+          message: 'Logged out successfully.'
+        });
+      }
+
+      try {
+        await tokenService.revokeSessionByToken(rawToken);
+
+        return res.status(200).json({
+          success: true,
+          message: 'Logged out successfully.'
+        });
+      } catch (err) {
+        // Operational log with zero secrets and zero raw tokens
+        console.error('[AUTH_LOGOUT_ERROR] Server-side session revocation failed:', err.message);
+
+        return res.status(500).json({
+          success: false,
+          error: 'LOGOUT_REVOCATION_FAILED',
+          message: 'Failed to revoke session on server. Browser cookie cleared.'
+        });
+      }
     }
   };
 }

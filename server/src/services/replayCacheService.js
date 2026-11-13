@@ -7,14 +7,17 @@
  * - Every cached response is encrypted with a unique 12-byte initialization vector (IV)
  *   and verified against a 16-byte cryptographic authentication tag.
  * - Any bit-level tampering or forgery immediately fails verification and throws an integrity error.
- * - Stores ephemeral successor responses (R2 payload) for up to 30 seconds to support:
- *   1. Tier 1 concurrent browser tab races (0 - 10s).
- *   2. Tier 2 dropped network response retries (10s - 30s).
- * - Fails safe on cache miss, eviction, or service outage by forcing fresh re-authentication
- *   without falsely revoking the entire token family.
+ * - Production Adapter: RedisReplayCacheService backed by ioredis client.
+ *   - Shared across all cluster instances.
+ *   - Survives application restarts for remaining TTL (capped at 30 seconds).
+ *   - Bound to token hash and token family.
+ *   - Fails closed on invalid keys, tampering, or Redis outage.
+ * - In-Memory Adapter: InMemoryReplayCacheService for isolated unit tests only.
+ *   - Strictly prohibited in production environments.
  */
 
 import crypto from 'crypto';
+import Redis from 'ioredis';
 
 export class ReplayCacheIntegrityError extends Error {
   constructor(message = 'Replay cache integrity check failed; payload may be tampered.') {
@@ -32,133 +35,356 @@ export class ReplayCacheOutageError extends Error {
   }
 }
 
-export class ReplayCacheService {
+export class ConfigurationError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = 'ConfigurationError';
+    this.code = code;
+  }
+}
+
+/**
+ * Resolves a stable 32-byte Buffer key for AES-256-GCM.
+ * In production, fails closed if REPLAY_CACHE_SECRET is missing or invalid.
+ * 
+ * @param {string|Buffer} [rawSecret]
+ * @param {boolean} [isProduction=false]
+ * @returns {Buffer}
+ */
+export function resolveReplayCacheKey(rawSecret, isProduction = process.env.NODE_ENV === 'production') {
+  const secret = rawSecret || process.env.REPLAY_CACHE_SECRET;
+
+  if (!secret) {
+    if (isProduction) {
+      throw new ConfigurationError(
+        'MISSING_REPLAY_CACHE_SECRET',
+        'Production environment requires an explicitly configured 32-byte REPLAY_CACHE_SECRET.'
+      );
+    }
+    // Only in non-production, allow test fallback key
+    return crypto.createHash('sha256').update('sb-manager-dev-replay-cache-secret').digest();
+  }
+
+  if (Buffer.isBuffer(secret)) {
+    if (secret.length !== 32) {
+      throw new ConfigurationError(
+        'INVALID_REPLAY_CACHE_SECRET',
+        `REPLAY_CACHE_SECRET buffer must be exactly 32 bytes, got ${secret.length} bytes.`
+      );
+    }
+    return secret;
+  }
+
+  if (typeof secret === 'string') {
+    const trimmed = secret.trim();
+    // Support 64-character hex strings directly
+    if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
+      return Buffer.from(trimmed, 'hex');
+    }
+    // Or digest any passphrase into 32 bytes
+    if (trimmed.length < 16 && isProduction) {
+      throw new ConfigurationError(
+        'INSUFFICIENT_REPLAY_CACHE_SECRET_ENTROPY',
+        'Production REPLAY_CACHE_SECRET passphrase must be at least 16 characters or a 64-hex string.'
+      );
+    }
+    return crypto.createHash('sha256').update(trimmed).digest();
+  }
+
+  throw new ConfigurationError('INVALID_REPLAY_CACHE_SECRET', 'REPLAY_CACHE_SECRET must be a string or Buffer.');
+}
+
+/**
+ * Encrypts a response payload using AES-256-GCM.
+ * 
+ * @param {Object} payload - Data to encrypt
+ * @param {Buffer} key - 32-byte key
+ * @returns {{ iv: string, authTag: string, ciphertext: string }}
+ */
+export function encryptPayload(payload, key) {
+  if (!payload || typeof payload !== 'object') {
+    throw new TypeError('Payload to encrypt must be an object.');
+  }
+
+  const iv = crypto.randomBytes(12); // Standard 96-bit GCM IV
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  
+  const jsonString = JSON.stringify(payload);
+  const ciphertext = Buffer.concat([
+    cipher.update(jsonString, 'utf8'),
+    cipher.final()
+  ]);
+  const authTag = cipher.getAuthTag();
+
+  return {
+    iv: iv.toString('base64'),
+    authTag: authTag.toString('base64'),
+    ciphertext: ciphertext.toString('base64')
+  };
+}
+
+/**
+ * Decrypts an encrypted payload using AES-256-GCM.
+ * 
+ * @param {{ iv: string, authTag: string, ciphertext: string }} encryptedObj
+ * @param {Buffer} key - 32-byte key
+ * @returns {Object} Decrypted payload
+ */
+export function decryptPayload(encryptedObj, key) {
+  if (!encryptedObj || !encryptedObj.iv || !encryptedObj.authTag || !encryptedObj.ciphertext) {
+    throw new ReplayCacheIntegrityError('Malformed encrypted envelope.');
+  }
+
+  try {
+    const iv = Buffer.from(encryptedObj.iv, 'base64');
+    const authTag = Buffer.from(encryptedObj.authTag, 'base64');
+    const ciphertext = Buffer.from(encryptedObj.ciphertext, 'base64');
+
+    if (iv.length !== 12 || authTag.length !== 16) {
+      throw new ReplayCacheIntegrityError('Invalid IV or auth tag length.');
+    }
+
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(authTag);
+
+    const decrypted = Buffer.concat([
+      decipher.update(ciphertext),
+      decipher.final()
+    ]);
+
+    return JSON.parse(decrypted.toString('utf8'));
+  } catch (err) {
+    if (err instanceof ReplayCacheIntegrityError) throw err;
+    throw new ReplayCacheIntegrityError(`AES-256-GCM decryption failed: ${err.message}`);
+  }
+}
+
+/**
+ * Production Redis Replay Cache Service
+ * Backed by Redis / ioredis. Shared by all instances, survives app process restarts.
+ */
+export class RedisReplayCacheService {
   /**
-   * @param {Object} [options]
-   * @param {string|Buffer} [options.secret] - 32-byte key or secret passphrase
-   * @param {number} [options.defaultTtlSeconds=30] - Default TTL in seconds
+   * @param {Object} options
+   * @param {import('ioredis').Redis} [options.redisClient] - Pre-instantiated ioredis client
+   * @param {string} [options.redisUrl] - Redis connection URL
+   * @param {string|Buffer} [options.secret] - Stable 32-byte secret
+   * @param {number} [options.defaultTtlSeconds=30] - TTL in seconds (capped at 30)
    */
   constructor(options = {}) {
-    this.defaultTtlSeconds = options.defaultTtlSeconds || 30;
+    const isProduction = process.env.NODE_ENV === 'production';
+    this.key = resolveReplayCacheKey(options.secret, isProduction);
+    this.defaultTtlSeconds = Math.min(options.defaultTtlSeconds || 30, 30);
     this.simulatedOutage = false;
-    this.store = new Map(); // tokenHash -> { iv, authTag, ciphertext, expiresAt }
 
-    // Resolve 32-byte encryption key
-    const rawSecret = options.secret || process.env.REPLAY_CACHE_SECRET;
-    if (rawSecret) {
-      if (Buffer.isBuffer(rawSecret) && rawSecret.length === 32) {
-        this.key = rawSecret;
-      } else {
-        // Deterministically digest any string passphrase into 32 bytes (256 bits)
-        this.key = crypto.createHash('sha256').update(String(rawSecret)).digest();
-      }
+    if (options.redisClient) {
+      this.client = options.redisClient;
+      this.ownsClient = false;
     } else {
-      // Ephemeral 32-byte key for local environment / testing
-      this.key = crypto.randomBytes(32);
-    }
-  }
-
-  /**
-   * Encrypts a response payload using AES-256-GCM.
-   * 
-   * @param {Object} payload - Data to encrypt
-   * @returns {{ iv: string, authTag: string, ciphertext: string }}
-   */
-  encryptPayload(payload) {
-    if (!payload || typeof payload !== 'object') {
-      throw new TypeError('Payload to encrypt must be an object.');
-    }
-
-    const iv = crypto.randomBytes(12); // Standard 96-bit GCM IV
-    const cipher = crypto.createCipheriv('aes-256-gcm', this.key, iv);
-    
-    const jsonString = JSON.stringify(payload);
-    const ciphertext = Buffer.concat([
-      cipher.update(jsonString, 'utf8'),
-      cipher.final()
-    ]);
-    const authTag = cipher.getAuthTag();
-
-    return {
-      iv: iv.toString('base64'),
-      authTag: authTag.toString('base64'),
-      ciphertext: ciphertext.toString('base64')
-    };
-  }
-
-  /**
-   * Decrypts an encrypted payload using AES-256-GCM.
-   * 
-   * @param {{ iv: string, authTag: string, ciphertext: string }} encryptedObj
-   * @returns {Object} Decrypted payload
-   */
-  decryptPayload(encryptedObj) {
-    if (!encryptedObj || !encryptedObj.iv || !encryptedObj.authTag || !encryptedObj.ciphertext) {
-      throw new ReplayCacheIntegrityError('Malformed encrypted envelope.');
-    }
-
-    try {
-      const iv = Buffer.from(encryptedObj.iv, 'base64');
-      const authTag = Buffer.from(encryptedObj.authTag, 'base64');
-      const ciphertext = Buffer.from(encryptedObj.ciphertext, 'base64');
-
-      if (iv.length !== 12 || authTag.length !== 16) {
-        throw new ReplayCacheIntegrityError('Invalid IV or auth tag length.');
+      const url = options.redisUrl || process.env.REDIS_URL;
+      if (!url && isProduction) {
+        throw new ConfigurationError(
+          'MISSING_REDIS_URL',
+          'Production environment requires an explicitly configured REDIS_URL for the shared replay cache.'
+        );
       }
-
-      const decipher = crypto.createDecipheriv('aes-256-gcm', this.key, iv);
-      decipher.setAuthTag(authTag);
-
-      const decrypted = Buffer.concat([
-        decipher.update(ciphertext),
-        decipher.final()
-      ]);
-
-      return JSON.parse(decrypted.toString('utf8'));
-    } catch (err) {
-      if (err instanceof ReplayCacheIntegrityError) throw err;
-      throw new ReplayCacheIntegrityError(`AES-256-GCM decryption failed: ${err.message}`);
+      this.client = new Redis(url || 'redis://127.0.0.1:6379', {
+        maxRetriesPerRequest: 1,
+        enableOfflineQueue: false,
+        lazyConnect: true
+      });
+      this.ownsClient = true;
     }
   }
 
+  encryptPayload(payload) {
+    return encryptPayload(payload, this.key);
+  }
+
+  decryptPayload(encryptedObj) {
+    return decryptPayload(encryptedObj, this.key);
+  }
+
   /**
-   * Sets cached response for a consumed refresh token hash.
+   * Stores an encrypted response payload in Redis keyed by consumed token hash.
    * 
-   * @param {string} tokenHash - SHA-256 hex digest of the consumed token
-   * @param {Object} payload - Response package (e.g. { accessToken, refreshToken, expiresIn })
-   * @param {number} [ttlSeconds] - Time-to-live in seconds
+   * @param {string} tokenHash
+   * @param {Object} payload
+   * @param {number} [ttlSeconds=30]
+   * @param {string} [familyId]
    */
-  async setCachedResponse(tokenHash, payload, ttlSeconds = this.defaultTtlSeconds) {
+  async setCachedResponse(tokenHash, payload, ttlSeconds = this.defaultTtlSeconds, familyId = null) {
     if (this.simulatedOutage) {
-      throw new ReplayCacheOutageError('Cache service currently offline.');
+      throw new ReplayCacheOutageError('Simulated Redis outage.');
     }
 
     if (!tokenHash || typeof tokenHash !== 'string') {
       throw new TypeError('tokenHash must be a non-empty string.');
     }
 
-    const encrypted = this.encryptPayload(payload);
-    const expiresAt = Date.now() + (ttlSeconds * 1000);
+    const effectiveTtl = Math.min(ttlSeconds, 30);
+    const enrichedPayload = {
+      ...payload
+    };
+    if (familyId || payload.familyId) {
+      enrichedPayload.familyId = familyId || payload.familyId;
+    }
 
-    this.store.set(tokenHash, {
+    const encrypted = encryptPayload(enrichedPayload, this.key);
+    const envelope = JSON.stringify({
       ...encrypted,
-      expiresAt
+      familyId: enrichedPayload.familyId || null
     });
+
+    const redisKey = `replay:${tokenHash}`;
+
+    try {
+      await this.client.set(redisKey, envelope, 'EX', effectiveTtl);
+    } catch (err) {
+      throw new ReplayCacheOutageError(`Redis set failed: ${err.message}`);
+    }
   }
 
   /**
-   * Retrieves and decrypts the cached response for a consumed token hash.
+   * Retrieves and decrypts the cached response from Redis.
    * 
-   * @param {string} tokenHash - SHA-256 hex digest of the consumed token
-   * @returns {Promise<Object|null>} Decrypted payload or null if absent/expired
+   * @param {string} tokenHash
+   * @param {string} [expectedFamilyId]
+   * @returns {Promise<Object|null>}
    */
-  async getCachedResponse(tokenHash) {
+  async getCachedResponse(tokenHash, expectedFamilyId = null) {
     if (this.simulatedOutage) {
-      // In outage mode, cache misses or errors fail safely
+      // In outage mode, returns null so caller can invoke approved concurrency/recovery path
       return null;
     }
 
     if (!tokenHash || typeof tokenHash !== 'string') {
+      return null;
+    }
+
+    const redisKey = `replay:${tokenHash}`;
+    let rawEnvelope;
+
+    try {
+      rawEnvelope = await this.client.get(redisKey);
+    } catch (err) {
+      // Redis error fails safely without crashing process
+      return null;
+    }
+
+    if (!rawEnvelope) {
+      return null;
+    }
+
+    let parsedEnvelope;
+    try {
+      parsedEnvelope = JSON.parse(rawEnvelope);
+    } catch {
+      throw new ReplayCacheIntegrityError('Redis cache payload is corrupted JSON.');
+    }
+
+    // Verify envelope binding
+    if (expectedFamilyId && parsedEnvelope.familyId && parsedEnvelope.familyId !== expectedFamilyId) {
+      throw new ReplayCacheIntegrityError('Replay cache familyId mismatch.');
+    }
+
+    const decrypted = decryptPayload(parsedEnvelope, this.key);
+
+    if (expectedFamilyId && decrypted.familyId && decrypted.familyId !== expectedFamilyId) {
+      throw new ReplayCacheIntegrityError('Decrypted payload familyId mismatch.');
+    }
+
+    return decrypted;
+  }
+
+  /**
+   * Deletes a cached entry from Redis.
+   * 
+   * @param {string} tokenHash
+   */
+  async deleteCachedResponse(tokenHash) {
+    if (!tokenHash || this.simulatedOutage) return;
+    try {
+      await this.client.del(`replay:${tokenHash}`);
+    } catch {
+      // Best effort eviction
+    }
+  }
+
+  /**
+   * Closes connection.
+   */
+  async close() {
+    if (this.ownsClient && this.client) {
+      try {
+        await this.client.quit();
+      } catch {
+        this.client.disconnect();
+      }
+    }
+  }
+
+  setSimulateOutage(outage) {
+    this.simulatedOutage = Boolean(outage);
+  }
+}
+
+/**
+ * In-Memory Replay Cache Service
+ * Strictly prohibited in production environments.
+ */
+export class InMemoryReplayCacheService {
+  constructor(options = {}) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new ConfigurationError(
+        'IN_MEMORY_CACHE_PROHIBITED_IN_PROD',
+        'InMemoryReplayCacheService is strictly prohibited in production environments.'
+      );
+    }
+
+    this.defaultTtlSeconds = Math.min(options.defaultTtlSeconds || 30, 30);
+    this.simulatedOutage = false;
+    this.store = new Map();
+    this.key = resolveReplayCacheKey(options.secret, false);
+  }
+
+  encryptPayload(payload) {
+    return encryptPayload(payload, this.key);
+  }
+
+  decryptPayload(encryptedObj) {
+    return decryptPayload(encryptedObj, this.key);
+  }
+
+  async setCachedResponse(tokenHash, payload, ttlSeconds = this.defaultTtlSeconds, familyId = null) {
+    if (this.simulatedOutage) {
+      throw new ReplayCacheOutageError('Simulated in-memory cache outage.');
+    }
+
+    if (!tokenHash || typeof tokenHash !== 'string') {
+      throw new TypeError('tokenHash must be a non-empty string.');
+    }
+
+    const effectiveTtl = Math.min(ttlSeconds, 30);
+    const enrichedPayload = {
+      ...payload
+    };
+    if (familyId || payload.familyId) {
+      enrichedPayload.familyId = familyId || payload.familyId;
+    }
+
+    const encrypted = encryptPayload(enrichedPayload, this.key);
+    const expiresAt = Date.now() + (effectiveTtl * 1000);
+
+    this.store.set(tokenHash, {
+      ...encrypted,
+      familyId: enrichedPayload.familyId || null,
+      expiresAt
+    });
+  }
+
+  async getCachedResponse(tokenHash, expectedFamilyId = null) {
+    if (this.simulatedOutage || !tokenHash) {
       return null;
     }
 
@@ -167,42 +393,67 @@ export class ReplayCacheService {
       return null;
     }
 
-    // Check expiration
     if (Date.now() > entry.expiresAt) {
       this.store.delete(tokenHash);
       return null;
     }
 
-    return this.decryptPayload(entry);
+    if (expectedFamilyId && entry.familyId && entry.familyId !== expectedFamilyId) {
+      throw new ReplayCacheIntegrityError('Family ID mismatch in cache envelope.');
+    }
+
+    const decrypted = decryptPayload(entry, this.key);
+    if (expectedFamilyId && decrypted.familyId && decrypted.familyId !== expectedFamilyId) {
+      throw new ReplayCacheIntegrityError('Family ID mismatch in decrypted payload.');
+    }
+
+    return decrypted;
   }
 
-  /**
-   * Deletes cached response for a token hash.
-   * 
-   * @param {string} tokenHash
-   */
   async deleteCachedResponse(tokenHash) {
     if (tokenHash) {
       this.store.delete(tokenHash);
     }
   }
 
-  /**
-   * Clears all cached entries.
-   */
   clear() {
     this.store.clear();
   }
 
-  /**
-   * Toggles outage simulation for resilience testing.
-   * 
-   * @param {boolean} outage
-   */
   setSimulateOutage(outage) {
     this.simulatedOutage = Boolean(outage);
   }
 }
 
-// Global default instance for convenience
-export const defaultReplayCacheService = new ReplayCacheService();
+/**
+ * Creates the appropriate ReplayCacheService instance based on configuration and environment.
+ * In production, strictly requires Redis configuration and fails closed if missing.
+ * 
+ * @param {Object} [options]
+ * @returns {RedisReplayCacheService|InMemoryReplayCacheService}
+ */
+export function createReplayCacheService(options = {}) {
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (isProduction) {
+    // In production, NEVER allow in-memory fallback
+    if (options.adapter === 'memory') {
+      throw new ConfigurationError(
+        'IN_MEMORY_CACHE_PROHIBITED_IN_PROD',
+        'Cannot use in-memory replay cache in production environment.'
+      );
+    }
+    return new RedisReplayCacheService(options);
+  }
+
+  // Non-production (dev / test)
+  if (options.adapter === 'redis' || options.redisClient || options.redisUrl || process.env.REDIS_URL) {
+    return new RedisReplayCacheService(options);
+  }
+
+  return new InMemoryReplayCacheService(options);
+}
+
+// Backward-compatible alias for existing imports
+export const ReplayCacheService = InMemoryReplayCacheService;
+export const defaultReplayCacheService = new InMemoryReplayCacheService();

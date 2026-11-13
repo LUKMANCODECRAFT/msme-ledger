@@ -10,7 +10,8 @@ export default defineConfig({
       argon2: path.resolve(__dirname, 'server/node_modules/argon2'),
       jsonwebtoken: path.resolve(__dirname, 'server/node_modules/jsonwebtoken'),
       express: path.resolve(__dirname, 'server/node_modules/express'),
-      'cookie-parser': path.resolve(__dirname, 'server/node_modules/cookie-parser')
+      'cookie-parser': path.resolve(__dirname, 'server/node_modules/cookie-parser'),
+      ioredis: path.resolve(__dirname, 'server/node_modules/ioredis')
     }
   },
   test: {

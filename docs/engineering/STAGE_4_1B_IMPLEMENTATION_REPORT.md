@@ -1,10 +1,16 @@
-# Stage 4.1B: Refresh Token Lifecycle, Rotation, Replay Detection & Session Endpoints Implementation Report
+# Stage 4.1B: Refresh Token Lifecycle, Rotation, Replay Detection & Session Endpoints Implementation & Security Remediation Report
 
 ## 1. Executive Summary
 
-Stage 4.1B (Refresh Token Lifecycle, Rotation, Replay Detection and Session Endpoints) of the SB Manager rebuild has been successfully implemented on feature branch `feature/phase-4-1a-auth-foundations`.
+Stage 4.1B of the SB Manager rebuild establishes the refresh-token lifecycle, atomic rotation, authenticated replay caching, session termination endpoints, and multi-layer CSRF defenses on branch `feature/phase-4-1a-auth-foundations`.
 
-This implementation delivers the end-to-end token session infrastructure required for secure merchant authentication, session continuation, atomic token rotation, delivery loss recovery, token-family replay mitigation, secure cookie handling, and multi-layer CSRF defense, strictly conforming to `SB_Manager_Rebuild_Blueprint_v2.1.md` Section 14 and `docs/engineering/PHASE_4_ARCHITECTURE_IMPLEMENTATION_PLAN.md` Sections 4.3 and 9.3.
+Following an independent security audit, all identified code-level defects have been remediated:
+1. **Transactionally Atomic Rotation:** Token rotation is fully transaction-aware with majority read/write concerns, guaranteeing that either R1 transitions from `active` to `consumed` AND R2 is created, or the entire operation rolls back.
+2. **Production Shared Redis Replay Cache:** Replaced process-local storage with `RedisReplayCacheService` (backed by `ioredis`), supporting cluster-shared cache persistence across process restarts, 30s max TTL, AES-256-GCM encryption with 32-byte stable key, and fail-closed integrity checks.
+3. **Fail-Closed Production Signing Configuration:** Removed ephemeral test key fallback from the service constructor. Production environments strictly require valid `JWT_PRIVATE_KEY` and `JWT_KEY_ID`, verified via cryptographic structure checks before accepting requests.
+4. **Pre-Commit Cache Write Hook & Outage Resilience:** Session rotation writes to the shared replay cache *before* database transaction commitment; if the cache write fails, the database transaction rolls back, leaving R1 active and preventing delivery-loss deadlock.
+5. **Logout Revocation Reliability:** Database revocation errors during logout are propagated rather than swallowed; the server responds with HTTP 500 while clearing browser cookies. Idempotent success (HTTP 200) is reserved for verified revocations, already-revoked families, or missing sessions.
+6. **Production CSRF Origin Hardening:** Production environments strictly require explicit `ALLOWED_ORIGINS` / `CORS_ALLOWED_ORIGINS` / `CLIENT_URL` configuration and never silently fall back to `localhost`.
 
 ---
 
@@ -37,7 +43,7 @@ This implementation delivers the end-to-end token session infrastructure require
   - Plaintext refresh tokens are **never** persisted in the database, logged, or returned in response bodies.
   - The database persists only the one-way `SHA-256(rawToken)` hex digest (`tokenHash`).
 
-### 2.2 Cryptographic Entropy & Hashing
+### 2.2 Cryptographic Entropy & Privacy Invariants
 - **Module:** `server/src/services/refreshTokenService.js`
 - **Functions:**
   - `generateRefreshToken()`:
@@ -51,172 +57,116 @@ This implementation delivers the end-to-end token session infrastructure require
     - Rejects missing, empty, or non-string inputs with structured `INVALID_REFRESH_TOKEN` (401).
 - **Session Duration:** 30 days (`2,592,000` seconds / `30 * 24 * 60 * 60 * 1000` ms).
 
-### 2.3 Authenticated Ephemeral Replay Cache (AES-256-GCM)
+### 2.3 Transactionally Atomic Rotation Specification
+- **Method:** `rotateTokenAtomic(...)` on `MongooseRefreshTokenStore` and `InMemoryRefreshTokenStore`
+- **Transaction Invariant:**
+  - Starts MongoDB transaction with `readConcern: { level: 'majority' }` and `writeConcern: { w: 'majority' }`.
+  - Re-verifies token family status inside transaction.
+  - Conditionally updates $R_1$ from `status: 'active'` to `'consumed'`.
+  - Inserts $R_2$ successor document with identical `familyId`.
+  - Executes pre-commit hook (replay cache write). If pre-commit fails, aborts transaction completely.
+  - Commits transaction.
+  - **Result:** $R_1$ is consumed and $R_2$ is active, or $R_1$ remains active and no $R_2$ is created.
+- **Topology Awareness:** Standalone MongoDB instances without replica-set capabilities reject transactions with `MONGODB_TOPOLOGY_UNSUPPORTED` (HTTP 500), preventing false claims of atomicity on unverified topologies.
+
+### 2.4 Production Shared Redis Replay Cache Adapter
 - **Module:** `server/src/services/replayCacheService.js`
-- **Class:** `ReplayCacheService`
+- **Classes:** `RedisReplayCacheService` (production), `InMemoryReplayCacheService` (isolated tests only)
 - **Specification:**
-  - **Algorithm:** Authenticated `AES-256-GCM` (Galois/Counter Mode).
-  - **Key Derivation:** Resolves a 32-byte (256-bit) secret from `process.env.REPLAY_CACHE_SECRET` or constructor options, utilizing SHA-256 hashing if a string passphrase is provided. Generates ephemeral 32-byte secret in memory when unconfigured.
-  - **Per-Record IV:** Generates a unique 12-byte cryptographically secure random IV (`crypto.randomBytes(12)`) for every encryption.
-  - **Authentication Tag:** Extracts and verifies 16-byte (128-bit) GCM authentication tag (`cipher.getAuthTag()`).
-  - **Tamper Detection:** Decryption validates ciphertext and authentication tag via `decipher.final()`. Any bit modification or tag mismatch fails closed and throws `ReplayCacheIntegrityError`.
-  - **Storage & TTL:** Caches encrypted successor payload (`{ accessToken, refreshToken, expiresIn, tokenType }`) keyed by consumed `tokenHash` for up to 30 seconds.
-  - **Outage Simulation:** Provides `setSimulateOutage(boolean)` for deterministic testing of cache degradation and offline resilience.
+  - **Redis Client:** `ioredis` with cluster and reconnect support.
+  - **Shared Storage:** Cache key `replay:<tokenHash>` shared across all service instances, surviving process restarts.
+  - **Encryption:** Authenticated `AES-256-GCM` with per-record 12-byte random IV (`crypto.randomBytes(12)`) and 16-byte authentication tag (`cipher.getAuthTag()`).
+  - **Key Resolution:** Stable 32-byte key from `process.env.REPLAY_CACHE_SECRET`. In production, missing or short secrets throw `ConfigurationError`.
+  - **TTL Enforcement:** Absolute maximum ceiling of 30 seconds (`EX Math.min(ttlSeconds, 30)`).
+  - **Integrity Validation:** Fails closed on IV tampering, ciphertext bit-flips, authentication tag mismatches, key mismatches, or token family mismatches with `ReplayCacheIntegrityError`.
+  - **Outage Fallback:** Redis network timeouts or connection drops fail safely without crashing, returning `null` so the caller invokes approved grace/re-auth logic.
 
-### 2.4 Two-Tier Concurrency, Recovery & Replay Detection Contract
-- **Module:** `server/src/services/refreshTokenService.js`
-- **Rotation Logic:**
-  1. Computes `tokenHash = hashRefreshToken(rawToken)`.
-  2. Queries persistence store for `currentToken`.
-  3. Rejects unknown tokens with `401 INVALID_REFRESH_TOKEN`.
-  4. Rejects expired tokens (`expiresAt <= now`) with `401 REFRESH_TOKEN_EXPIRED`.
-  5. Rejects terminated tokens (`status === 'delivery_terminated'`) with `401 REFRESH_DELIVERY_FAILED_REAUTH_REQUIRED`.
-  6. Rejects tokens belonging to a revoked family with `401 TOKEN_FAMILY_ALREADY_REVOKED`.
-  7. **When `status === 'active'` (Normal Rotation):**
-     - Generates successor token `R2`.
-     - Executes atomic conditional update: transitions `R1` from `active` to `consumed`, records `consumedAt = now`, and sets `replacedByHash = SHA256(R2)`.
-     - If conditional write does not match (another concurrent request won the race), re-reads state and enters consumed evaluation.
-     - Inserts successor token `R2` with same `familyId`, `status: 'active'`, and 30-day lifetime.
-     - Issues a fresh RS256 access token signed with user's verified claims (`sub`, `email`, `defaultBusinessId`) and 900-second TTL.
-     - Encrypts and caches response in Replay Cache for 30 seconds.
-     - Returns `{ accessToken, refreshToken: R2, tokenType: 'Bearer', expiresIn: 900 }`.
-  8. **When `status === 'consumed'` (Replay / Concurrency Evaluation):**
-     - Calculates elapsed duration: $\Delta t = \text{now} - \text{currentToken.consumedAt}$.
-     - **Tier 1 & Tier 2 ($\Delta t \le 30,000\text{ ms}$ — Concurrent Grace & Network Retry Window):**
-       - Queries Replay Cache for `tokenHash`.
-       - If cache hit: decrypts and idempotently returns the cached successor package (`isReplay: true`). Token family is **not revoked**.
-       - If cache miss or outage:
-         - **Tier 1 ($\Delta t \le 10,000\text{ ms}$ — Concurrent Tab Window):** Returns `409 Conflict` (`CONCURRENT_REFRESH_IN_PROGRESS`, `Retry-After: 1`). Token family is **not revoked**.
-         - **Tier 2 ($10,000\text{ ms} < \Delta t \le 30,000\text{ ms}$ — Network Loss Window):** Marks branch `status: 'delivery_terminated'` and returns `401 Unauthorized` (`REFRESH_DELIVERY_FAILED_REAUTH_REQUIRED`). Requires merchant login without falsely revoking the entire token family.
-     - **Tier 3 ($\Delta t > 30,000\text{ ms}$ — Suspicious Replay Attack):**
-       - Confirmed replay attack.
-       - Immediately revokes the **entire token family**: marks all tokens with `familyId` as `status: 'revoked'`, `revokedAt = now`, `reuseDetectedAt = now`, `revocationReason = 'REPLAY_DETECTED'`.
-       - Evicts cached replay entry.
-       - Returns `401 Unauthorized` (`TOKEN_FAMILY_COMPROMISED`).
-       - Any subsequent refresh attempt presenting any token from this family (including active successor `R2`) is rejected with `401 TOKEN_FAMILY_ALREADY_REVOKED`.
+### 2.5 Two-Tier Concurrency, Recovery & Replay Detection Contract
+Conforms strictly to Section 4.3 of the Phase 4 Architecture Plan:
+1. **Tier 1 ($\Delta t \le 10\text{s}$ — Concurrent Browser Tab Window):**
+   - Active cache hit returns the successor payload idempotently (`isReplay: true`).
+   - Cache miss returns `409 Conflict` (`CONCURRENT_REFRESH_IN_PROGRESS`, `Retry-After: 1`).
+   - **Family is not revoked.**
+2. **Tier 2 ($10\text{s} < \Delta t \le 30\text{s}$ — Delivery Loss Retry Window):**
+   - Active cache hit returns the successor payload idempotently.
+   - Cache outage / miss marks the branch as `delivery_terminated` and returns `401 Unauthorized` (`REFRESH_DELIVERY_FAILED_REAUTH_REQUIRED`).
+   - Forces user login **without false-positive family revocation**.
+3. **Tier 3 ($\Delta t > 30\text{s}$ — Malicious Replay Attack Window):**
+   - Immediately revokes the **entire token family**: transitions all family tokens to `status = 'revoked'` with `revocationReason = 'REPLAY_DETECTED'`.
+   - Evicts replay cache entry and returns `401 Unauthorized` (`TOKEN_FAMILY_COMPROMISED`).
+   - Any subsequent refresh attempt for any token in the family is rejected with `401 TOKEN_FAMILY_ALREADY_REVOKED`.
 
-### 2.5 Multi-Layer CSRF Defense Middleware
+### 2.6 Fail-Closed Production Signing Configuration
+- **Module:** `server/src/services/jwtService.js` and `server/src/services/refreshTokenService.js`
+- **Validation:** `validatePrivateKey(privateKeyPem, expectedKid)`:
+  - Verifies PEM structure and validates `keyObject.asymmetricKeyType === 'rsa'`.
+  - Enforces non-empty string `kid`.
+  - Rejects missing private keys, missing key IDs, malformed PEMs, and non-RSA keys with structured errors before accepting requests.
+- **Fail-Closed Constructor:**
+  - In production (`process.env.NODE_ENV === 'production'`), missing signing keys throw `ConfigurationError('MISSING_JWT_PRIVATE_KEY')`.
+  - Ephemeral test key generation is strictly prohibited in production and available only via `createTestRefreshTokenService()` in test suites.
+
+### 2.7 Logout Reliability Contract
+- **Module:** `server/src/controllers/authSessionController.js` and `server/src/services/refreshTokenService.js`
+- **Specification:**
+  - Browser cookie `sb_refresh_token` is cleared on every logout request.
+  - Revocation is executed in the database via `revokeSessionByToken(rawToken)`.
+  - If the database query fails or throws an operational error, the error is **not swallowed**; the controller logs a sanitized event (no secrets, no raw tokens) and returns `500 LOGOUT_REVOCATION_FAILED`.
+  - If the token does not exist or the family is already revoked, returns `200 OK` idempotently.
+  - The server never accepts arbitrary user-supplied family IDs to revoke third-party sessions.
+
+### 2.8 Multi-Layer CSRF Defense & Cookie Security
 - **Module:** `server/src/middleware/csrfProtection.js`
-- **Function:** `createCsrfProtectionMiddleware(options)`
-- **Four Layers of Defense:**
-  1. **Safe Method Exemption:** Safe HTTP read methods (`GET`, `HEAD`, `OPTIONS`) bypass CSRF checks.
-  2. **Fetch Metadata Policy:** Inspects `Sec-Fetch-Site`. If present and equals `'cross-site'`, immediately rejects with `403 Forbidden` (`CSRF_CROSS_SITE`).
-  3. **Strict Origin Validation:** Compares `Origin` (or parsed `Referer`) against configured allowlist (`ALLOWED_ORIGINS` / `CORS_ALLOWED_ORIGINS` / `CLIENT_URL`). Missing or untrusted origins on state-changing requests are rejected with `403 Forbidden` (`CSRF_INVALID_ORIGIN`).
-  4. **Custom Request Header Validation:** Mandates presence of custom application header (`X-Requested-With`, `X-SB-Client`, or `X-CSRF-Token`). Since browsers prevent cross-origin scripts from setting custom headers without CORS preflight approval, state-changing forgery is blocked with `403 Forbidden` (`CSRF_MISSING_HEADER`).
-
-### 2.6 Session Endpoints & Secure Cookie Management
-- **Modules:**
-  - `server/src/controllers/authSessionController.js`
-  - `server/src/routes/authSessionRoutes.js`
-  - Mounted in `server/src/server.js` at `/api/v2/auth` with `cookie-parser`.
-- **Cookie Security Attributes:**
-  - Name: `sb_refresh_token`
-  - `httpOnly: true` (prevents malicious JavaScript access via XSS)
-  - `secure: true` in production (`process.env.NODE_ENV === 'production'`)
-  - `sameSite: 'strict'` (blocks transmission on cross-site requests)
-  - `path: '/api/v2/auth'` (scopes cookie exclusively to session endpoints)
-  - `maxAge: 30 * 24 * 60 * 60 * 1000` (30 days)
-- **Endpoints:**
-  - **`POST /api/v2/auth/refresh`:**
-    - Protected by CSRF middleware.
-    - Extracts `sb_refresh_token` from cookies (with header fallback).
-    - If cookie is missing: returns `401 MISSING_REFRESH_TOKEN`.
-    - On valid rotation: sets updated cookie `sb_refresh_token` and returns `200 OK` with `{ success: true, data: { accessToken, tokenType: 'Bearer', expiresIn: 900 } }`.
-    - On 409 concurrency: sends `Retry-After: 1` header without clearing cookie.
-    - On 401 failures: clears `sb_refresh_token` cookie and returns structured error.
-  - **`POST /api/v2/auth/logout`:**
-    - Protected by CSRF middleware.
-    - Extracts `sb_refresh_token` cookie if present.
-    - Revokes token family in store.
-    - Always clears `sb_refresh_token` cookie.
-    - Idempotently returns `200 OK` with `{ success: true, message: 'Logged out successfully.' }`.
+- **Origin Validation:** In production, missing origin configuration defaults to empty allowlist (`[]`), rejecting all state-changing requests. Never silently permits `localhost` in production.
+- **Custom Header:** Mandates `X-Requested-With`, `X-SB-Client`, or `X-CSRF-Token`.
+- **Fetch Metadata:** Blocks `Sec-Fetch-Site: cross-site` with `403 CSRF_CROSS_SITE`.
+- **Cookie Security:** `sb_refresh_token` cookie configured with `HttpOnly: true`, `Secure: true` in production, `SameSite: 'strict'`, `Path: '/api/v2/auth'`, `MaxAge: 30 days`.
+- **Body Privacy:** Refresh endpoint returns `{ success: true, data: { accessToken, tokenType: 'Bearer', expiresIn: 900 } }`. The refresh token is strictly set in the HttpOnly cookie and is **never** exposed in JSON response bodies.
 
 ---
 
-## 3. Automated Test Verification & Coverage Evidence
+## 3. Verification Evidence by Category
 
-The comprehensive test suite at `src/test/auth_refresh_lifecycle.test.js` covers 37 targeted test scenarios:
+### A. Vitest Suite Results
+- **Total Test Files:** 11 passed (11)
+- **Total Tests:** 185 passed (185)
+- **Test File Breakdown:**
+  1. `src/test/auth_refresh_remediation.test.js`: 25 passed (targeted security remediation suite)
+  2. `src/test/auth_refresh_lifecycle.test.js`: 37 passed (Stage 4.1B lifecycle and concurrency suite)
+  3. `src/test/auth_foundations.test.js`: 61 passed (Stage 4.1A Argon2id & RS256 token suite)
+  4. `src/test/mongoose_target_schemas.test.js`: 8 passed (target schema index verification)
+  5. `src/test/migration_architecture.test.js`: 10 passed
+  6. `src/test/debt_reconciliation.test.js`: 10 passed
+  7. `src/test/inventory_domain.test.js`: 17 passed
+  8. `src/test/dexie_databases.test.js`: 7 passed
+  9. `src/test/onboarding.test.jsx`: 4 passed
+  10. `src/test/stock_movement_safeguard.test.js`: 5 passed
+  11. `src/test/smoke.test.js`: 1 passed
 
-1. **Persistence Model & Target Schema (5 tests):**
-   - Target `RefreshToken` schema definitions, fields, types, and defaults.
-   - Status enum validation (`active`, `consumed`, `revoked`, `delivery_terminated`).
-   - Compound index on `{ familyId: 1, status: 1 }` and `{ userId: 1, status: 1 }`.
-   - Unique index declaration on `tokenHash`.
-   - TTL index declaration on `expiresAt` with `expires: 0`.
+### B. Verification Category Matrix
 
-2. **Cryptographic Entropy & Hashing (4 tests):**
-   - 32 cryptographically random bytes encoded in base64url (43 chars, 256 bits).
-   - Distinct entropy across 50 repeated generations.
-   - Deterministic SHA-256 hex hashing (64 chars).
-   - Input validation rejecting empty, null, and non-string inputs.
-
-3. **Replay Cache AES-256-GCM (5 tests):**
-   - Round-trip authenticated encryption/decryption.
-   - Fails closed on ciphertext bit-tampering (`ReplayCacheIntegrityError`).
-   - Fails closed on auth tag modification (`ReplayCacheIntegrityError`).
-   - Automatic TTL expiration.
-   - Graceful fallback on simulated cache service outage.
-
-4. **Lifecycle & Atomic Rotation (5 tests):**
-   - Initial session generation with 30-day lifetime and valid RS256 token.
-   - Atomic rotation: `R1` marked consumed, `R2` active in same family.
-   - Access token signature and claims verification.
-   - Rejection of expired refresh tokens with 401 `REFRESH_TOKEN_EXPIRED`.
-   - Rejection of unknown tokens with 401 `INVALID_REFRESH_TOKEN`.
-   - Verification that plaintext tokens are **never** persisted in store or token documents.
-
-5. **Two-Tier Concurrency & Replay Detection (5 tests):**
-   - Concurrent race prevention: simultaneous requests cannot fork competing branches.
-   - Tier 1/2 ($\le 30$s): Idempotent cached successor replay without family revocation.
-   - Tier 1 ($\le 10$s): 409 `CONCURRENT_REFRESH_IN_PROGRESS` on cache miss without family revocation.
-   - Tier 2 (10–30s): 401 `REFRESH_DELIVERY_FAILED_REAUTH_REQUIRED` branch termination on cache outage without family revocation.
-   - Tier 3 ($> 30$s): Immediate family revocation on replay attack, rejecting subsequent attempts with `TOKEN_FAMILY_ALREADY_REVOKED`.
-
-6. **CSRF Protection Middleware (6 tests):**
-   - Exemption of safe methods (`GET`, `HEAD`, `OPTIONS`).
-   - Rejection of `Sec-Fetch-Site: cross-site` with 403 `CSRF_CROSS_SITE`.
-   - Rejection of missing Origin/Referer with 403 `CSRF_INVALID_ORIGIN`.
-   - Rejection of unauthorized Origin with 403 `CSRF_INVALID_ORIGIN`.
-   - Rejection of missing custom header with 403 `CSRF_MISSING_HEADER`.
-   - Acceptance of valid Origin with custom header.
-
-7. **Session Endpoints Integration (7 tests):**
-   - Cookie parsing from `req.cookies` and raw `cookie` header.
-   - 401 `MISSING_REFRESH_TOKEN` on absent cookie.
-   - Successful rotation with `Set-Cookie` headers and JSON access token.
-   - Cookie attributes verification (`HttpOnly`, `SameSite=Strict`, `Path=/api/v2/auth`, 30-day maxAge).
-   - Cookie cleared on 401 authentication failure.
-   - Full family revocation and cookie clearing on `POST /logout`.
-   - Idempotent logout when called without cookie.
-   - End-to-end Express router pipeline verification.
-
-### Test Execution Summary
-- **Total Test Files:** 10 passed (10)
-- **Total Tests:** 160 passed (160)
-  - Baseline/Phase 1–3 Tests: 62 passed
-  - Stage 4.1A Foundations Tests: 61 passed
-  - Stage 4.1B Refresh Token Lifecycle Tests: 37 passed
-- **Production Build:** Vite production build succeeds cleanly in ~1.2s.
-- **Database Safety:** Zero connections made to live cloud or production databases.
-
----
-
-## 4. Scope Compliance & Verification Boundary
-
-| Milestone / Requirement | Status | Verification Reference |
+| Verification Category | Execution Status | Evidence / Notes |
 |---|---|---|
-| Refresh Token Persistence Model | **COMPLETED** | `server/src/models/target/refreshTokenModel.js` |
-| 32-Byte Cryptographic Generation | **COMPLETED** | `generateRefreshToken` (256-bit entropy) |
-| SHA-256 Token Hash Persistence | **COMPLETED** | Zero plaintext storage verified |
-| 30-Day Token Lifetime | **COMPLETED** | `expiresAt` TTL index declared & tested |
-| Family ID & Status Tracking | **COMPLETED** | `active`, `consumed`, `revoked`, `delivery_terminated` |
-| Atomic Rotation Implementation | **COMPLETED** | Conditional write + atomic successor creation |
-| 10s Concurrent Grace Window | **COMPLETED** | Tier 1: 409 Conflict, family preserved |
-| 10–30s Replay Cache (AES-256-GCM) | **COMPLETED** | Tier 2: Authenticated cache + tamper checks |
-| >30s Replay Detection & Revocation | **COMPLETED** | Tier 3: Immediate token-family revocation |
-| Secure Cookie Attributes | **COMPLETED** | `HttpOnly`, `Secure`, `SameSite=Strict`, `/api/v2/auth` |
-| Multi-Layer CSRF Protection | **COMPLETED** | Origin allowlist, Sec-Fetch-Site, custom header |
-| Session Endpoints | **COMPLETED** | `POST /api/v2/auth/refresh`, `POST /api/v2/auth/logout` |
-| SBM-041 Multi-Tenant RBAC | **DEFERRED** | Out of scope for Stage 4.1B |
-| SBM-042 Subscription Services | **DEFERRED** | Out of scope for Stage 4.1B |
-| Cloud / Production DB Access | **STRICTLY EXCLUDED** | Fully isolated; zero network database calls |
+| **Unit Tests** | **PASSED** | 185 passing tests covering Argon2id, RS256, AES-256-GCM, CSRF, cookies, and tokens. |
+| **Mocked Infrastructure Tests** | **PASSED** | Multi-instance Redis mock and transactional store adapter verify cluster sharing, rollback, and race conditions. |
+| **Real MongoDB Replica-Set Integration** | **UNVERIFIED LOCALLY** | Standalone local daemon does not support multi-document transactions. Tested via deterministic adapter with topology check; real replica-set tests require staging environment. |
+| **Real Redis Integration** | **UNVERIFIED LOCALLY** | Tested via Redis mock adapter and ioredis interface; real Redis server was not provisioned in the local test runner. |
+| **Vite Production Build** | **PASSED** | Production client bundle built in 1.12s with zero warnings or errors. |
+
+---
+
+## 4. Remaining Infrastructure Limitations
+
+1. **MongoDB Replica Set Prerequisite:**
+   - MongoDB multi-document transactions require a replica set or sharded cluster topology with majority write concern.
+   - On standalone development/test MongoDB servers, the system detects missing replica set topology and rejects transactions with `MONGODB_TOPOLOGY_UNSUPPORTED`.
+   - Deployment to production requires replica-set provisioning.
+
+2. **Redis Cluster Prerequisite:**
+   - The shared replay cache requires an active Redis instance or cluster configured via `REDIS_URL` and `REPLAY_CACHE_SECRET`.
+   - Local offline testing utilizes the mock/in-memory adapters; live staging validation against a real Redis instance remains a pre-production deployment requirement.
+
+3. **Exclusion Scope Maintained:**
+   - SBM-041 (Multi-tenant authorization, roles, and business membership) remains strictly unstarted.
+   - SBM-042 (Subscriptions and manual bank transfer entitlements) remains strictly unstarted.
+   - Stage 4.1C (Registration and login endpoints) remains deferred until authorization.

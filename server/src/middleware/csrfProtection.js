@@ -41,6 +41,12 @@ export function resolveAllowedOrigins(configuredOrigins) {
     return envOrigins.split(',').map(o => o.trim().replace(/\/$/, '')).filter(Boolean);
   }
 
+  // Security Hardening: In production, never silently allow localhost defaults.
+  // Require explicit allowlist configuration.
+  if (process.env.NODE_ENV === 'production') {
+    return [];
+  }
+
   return DEFAULT_ALLOWED_ORIGINS;
 }
 

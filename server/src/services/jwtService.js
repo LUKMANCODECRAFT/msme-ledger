@@ -68,6 +68,36 @@ export function generateTestRsaKeyPair(kid = 'test-auth-key-1') {
 }
 
 /**
+ * Validates that an RSA private key and key ID are structurally sound for RS256 signing.
+ * Fails closed without leaking private key contents.
+ * 
+ * @param {string} privateKeyPem
+ * @param {string} expectedKid
+ * @returns {boolean}
+ */
+export function validatePrivateKey(privateKeyPem, expectedKid) {
+  if (!privateKeyPem || typeof privateKeyPem !== 'string' || !privateKeyPem.trim()) {
+    throw new Error('MISSING_PRIVATE_KEY: JWT private key must be a non-empty PEM string.');
+  }
+
+  if (!expectedKid || typeof expectedKid !== 'string' || !expectedKid.trim()) {
+    throw new Error('MISSING_KEY_ID: JWT key ID must be an explicitly configured non-empty string.');
+  }
+
+  try {
+    const keyObject = crypto.createPrivateKey(privateKeyPem);
+    if (keyObject.type !== 'private' || keyObject.asymmetricKeyType !== 'rsa') {
+      throw new Error('INVALID_KEY_TYPE: Configured JWT private key is not an RSA private key.');
+    }
+  } catch (err) {
+    if (err.message.startsWith('INVALID_KEY_TYPE')) throw err;
+    throw new Error(`MALFORMED_PRIVATE_KEY: Failed to parse RSA private key: ${err.message}`);
+  }
+
+  return true;
+}
+
+/**
  * Signs an RS256 access token.
  * Requires an explicitly configured key ID (via options.kid or process.env.JWT_KEY_ID).
  * 
