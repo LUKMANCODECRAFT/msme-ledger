@@ -75,8 +75,7 @@ Following independent architecture and code audits, all identified defects have 
   5. HTTP response delivery (`Set-Cookie: R2`, JSON: `accessToken`).
 - **Proof of Invariant Under Failure:**
   - If step 3 (cache write) fails, the transaction is aborted. $R_1$ remains `active` in MongoDB, and $R_2$ is discarded.
-  - If step 4 (commit) aborts, $R_1$ remains `active` in MongoDB, and the uncommitted Redis entry is deleted.
-  - If a client later presents $R_1$, the server queries MongoDB *first*. Because $R_1$ is `active`, the server enters normal rotation (Case A) and **never** queries the replay cache. It is mathematically impossible for a request to receive an uncommitted successor from the replay cache when the transaction aborted.
+  - If step 4 (commit) aborts, the MongoDB transaction rolls back and $R_1$ remains `active` in MongoDB ($R_2$ is not committed). When a client retries with $R_1$, the server queries MongoDB *first*; because $R_1$ is `active`, it enters normal rotation (Case A) and **never** consults the replay cache. The uncommitted cache entry is overwritten upon the next successful rotation or purged when its 30-second TTL expires. Furthermore, a non-destructive targeted rollback hook `deleteCachedResponseIfMatches(tokenHash, nextTokenHash)` purges the entry only if it still matches the uncommitted successor, guaranteeing that a failed concurrent rotation never deletes a sibling rotation's valid committed successor. It is impossible for an uncommitted successor to be returned to a client.
 
 ### 2.5 Production Shared Redis Replay Cache Adapter
 - **Module:** `server/src/services/replayCacheService.js`
@@ -142,32 +141,64 @@ Conforms strictly to Section 4.3 of the Phase 4 Architecture Plan:
   5. Injects `tokenService` into `createAuthSessionRouter({ tokenService })` and mounts on `/api/v2/auth`.
   6. Graceful shutdown handler closes HTTP listener, Redis client, and MongoDB connection.
 
+### 2.11 Production Dependency-Injection Bypass Prevention
+- **Module:** `server/src/server.js` (`initializeProductionServices`)
+- **Enforcement Rules:**
+  - In production (`NODE_ENV === 'production'`), requires `options.replayCache instanceof RedisReplayCacheService`. In-memory or arbitrary cache adapters are rejected with `INVALID_PRODUCTION_REPLAY_CACHE`.
+  - Injected Redis cache instances still undergo live readiness verification via `await replayCache.ping()`.
+  - In production, requires `options.store instanceof MongooseRefreshTokenStore`. Non-persistent or in-memory stores are rejected with `INVALID_PRODUCTION_TOKEN_STORE`.
+  - Non-production environments (`dev`, `test`) maintain flexible dependency injection for isolated testing.
+
+### 2.12 Secret & Credential Redaction in Errors and Logs
+- **Module:** `server/src/services/replayCacheService.js` and `server/src/server.js`
+- **Helpers:** `redactSensitiveUrl(url)` and `sanitizeErrorMessage(message)`
+- **Guarantees:**
+  - Redis connection URLs containing credentials (e.g. `redis://user:pass@host:port`) are redacted to `redis://***:***@host:port`.
+  - MongoDB connection URLs containing credentials (e.g. `mongodb://user:pass@host:port/db`) are redacted to `mongodb://***:***@host:port/db`.
+  - Sensitive query params (`password`, `secret`, `token`, `key`) are sanitized to `key=***`.
+  - Startup readiness errors (`REDIS_READINESS_FAILED`, `MONGO_CONNECTION_FAILED`) sanitize error details before throwing or logging.
+
+### 2.13 Explicit Production MongoDB Configuration
+- **Module:** `server/src/server.js` (`startServer`)
+- **Enforcement:**
+  - Production startup strictly requires an explicit `MONGO_URI`. Missing, empty, or whitespace-only configuration throws `ConfigurationError('MISSING_MONGO_URI')` before accepting HTTP traffic.
+  - Silent fallback to `mongodb://127.0.0.1:27017/msme_ledger` is strictly restricted to non-production environments.
+
+### 2.14 MongoDB Session Lifecycle & Guaranteed Cleanup
+- **Module:** `server/src/services/refreshTokenService.js` (`MongooseRefreshTokenStore.rotateTokenAtomic`)
+- **Guarantees:**
+  - Every successfully created MongoDB session is registered with `cleanupSession()` and ended via `await session.endSession()` exactly once in `finally`.
+  - If `session.startTransaction()` throws, `cleanupSession()` executes without calling `abortTransaction()` on an unstarted transaction.
+  - Double cleanups across transient retry iterations are prevented via idempotent session tracking flags.
+  - Cleanup errors do not mask original transaction or application errors.
+
 ---
 
 ## 3. Verification Evidence by Category
 
 ### A. Vitest Suite Results
-- **Total Test Files:** 12 passed (12)
-- **Total Tests:** 203 passed (203)
+- **Total Test Files:** 13 passed (13)
+- **Total Tests:** 224 passed (224)
 - **Test File Breakdown:**
-  1. `src/test/stage_4_1b_final_remediation.test.js`: 18 passed (production bootstrap, route retirement, transaction retry)
-  2. `src/test/auth_refresh_remediation.test.js`: 25 passed (atomic rotation, Redis clustering, signing fail-closed, logout reliability)
-  3. `src/test/auth_refresh_lifecycle.test.js`: 37 passed (Stage 4.1B lifecycle and concurrency suite)
-  4. `src/test/auth_foundations.test.js`: 61 passed (Stage 4.1A Argon2id & RS256 token suite)
-  5. `src/test/mongoose_target_schemas.test.js`: 8 passed (target schema index verification)
-  6. `src/test/migration_architecture.test.js`: 10 passed
-  7. `src/test/debt_reconciliation.test.js`: 10 passed
-  8. `src/test/inventory_domain.test.js`: 17 passed
-  9. `src/test/dexie_databases.test.js`: 7 passed
-  10. `src/test/onboarding.test.jsx`: 4 passed
-  11. `src/test/stock_movement_safeguard.test.js`: 5 passed
-  12. `src/test/smoke.test.js`: 1 passed
+  1. `src/test/stage_4_1b_production_reliability.test.js`: 21 passed (DI enforcement, secret redaction, MongoDB URI requirement, session lifecycle, replay abort isolation)
+  2. `src/test/stage_4_1b_final_remediation.test.js`: 18 passed (production bootstrap, route retirement, transaction retry)
+  3. `src/test/auth_refresh_remediation.test.js`: 25 passed (atomic rotation, Redis clustering, signing fail-closed, logout reliability)
+  4. `src/test/auth_refresh_lifecycle.test.js`: 37 passed (Stage 4.1B lifecycle and concurrency suite)
+  5. `src/test/auth_foundations.test.js`: 61 passed (Stage 4.1A Argon2id & RS256 token suite)
+  6. `src/test/mongoose_target_schemas.test.js`: 8 passed (target schema index verification)
+  7. `src/test/migration_architecture.test.js`: 10 passed
+  8. `src/test/debt_reconciliation.test.js`: 10 passed
+  9. `src/test/inventory_domain.test.js`: 17 passed
+  10. `src/test/dexie_databases.test.js`: 7 passed
+  11. `src/test/onboarding.test.jsx`: 4 passed
+  12. `src/test/stock_movement_safeguard.test.js`: 5 passed
+  13. `src/test/smoke.test.js`: 1 passed
 
 ### B. Verification Category Matrix
 
 | Verification Category | Execution Status | Evidence / Notes |
 |---|---|---|
-| **Unit Tests** | **PASSED** | 203 passing tests covering Argon2id, RS256 claims, AES-256-GCM authenticated encryption, CSRF headers, cookies, and tokens. |
+| **Unit Tests** | **PASSED** | 224 passing tests covering Argon2id, RS256 claims, AES-256-GCM authenticated encryption, CSRF headers, cookies, DI guards, redaction, and session cleanup. |
 | **Mocked Infrastructure Tests** | **PASSED** | Multi-instance Redis mock and transactional store adapter verify cluster sharing, transaction retry, rollback, and race conditions. |
 | **Real MongoDB Replica-Set Integration** | **UNVERIFIED LOCALLY** | Standalone local daemon does not support multi-document transactions. Tested via deterministic adapter with topology check; real replica-set tests require staging environment. |
 | **Real Redis Integration** | **UNVERIFIED LOCALLY** | Tested via Redis mock adapter and ioredis interface; real Redis server was not provisioned in local test runner. |

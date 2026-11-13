@@ -133,7 +133,8 @@ export class MongooseRefreshTokenStore {
     nextTokenHash,
     successorDoc,
     now,
-    preCommitHook
+    preCommitHook,
+    onRollbackHook
   }) {
     const db = this.model.db;
     const maxTxnRetries = 3;
@@ -141,31 +142,59 @@ export class MongooseRefreshTokenStore {
 
     for (let txnAttempt = 1; txnAttempt <= maxTxnRetries; txnAttempt++) {
       let session = null;
-      try {
-        session = await db.startSession();
-        session.startTransaction({
-          readConcern: { level: 'majority' },
-          writeConcern: { w: 'majority' }
-        });
-      } catch (err) {
-        if (err.message?.includes('replica set') || err.code === 20) {
-          throw new RefreshTokenError(
-            'MONGODB_TOPOLOGY_UNSUPPORTED',
-            500,
-            'MongoDB transactions require a replica set or sharded cluster topology. Standalone MongoDB deployments cannot guarantee atomic multi-document token rotation.'
-          );
+      let transactionStarted = false;
+      let sessionEnded = false;
+
+      const cleanupSession = async () => {
+        if (session && !sessionEnded) {
+          sessionEnded = true;
+          try {
+            await session.endSession();
+          } catch {
+            // Guard against masking root cause during cleanup
+          }
         }
-        throw err;
-      }
-
-      let createdSuccessor = null;
-      let consumedDoc = null;
+      };
 
       try {
+        try {
+          session = await db.startSession();
+        } catch (err) {
+          if (err.message?.includes('replica set') || err.code === 20) {
+            throw new RefreshTokenError(
+              'MONGODB_TOPOLOGY_UNSUPPORTED',
+              500,
+              'MongoDB transactions require a replica set or sharded cluster topology. Standalone MongoDB deployments cannot guarantee atomic multi-document token rotation.'
+            );
+          }
+          throw err;
+        }
+
+        try {
+          session.startTransaction({
+            readConcern: { level: 'majority' },
+            writeConcern: { w: 'majority' }
+          });
+          transactionStarted = true;
+        } catch (txnStartErr) {
+          if (txnStartErr.message?.includes('replica set') || txnStartErr.code === 20) {
+            throw new RefreshTokenError(
+              'MONGODB_TOPOLOGY_UNSUPPORTED',
+              500,
+              'MongoDB transactions require a replica set or sharded cluster topology. Standalone MongoDB deployments cannot guarantee atomic multi-document token rotation.'
+            );
+          }
+          throw txnStartErr;
+        }
+
+        let createdSuccessor = null;
+        let consumedDoc = null;
+
         // 1. Invariant check inside transaction: verify family is not revoked
         const isRevoked = await this.model.findOne({ familyId, status: 'revoked' }).session(session);
         if (isRevoked) {
-          await session.abortTransaction();
+          await session.abortTransaction().catch(() => {});
+          transactionStarted = false;
           throw new RefreshTokenError('TOKEN_FAMILY_ALREADY_REVOKED', 401, 'Token family has been revoked.');
         }
 
@@ -185,7 +214,8 @@ export class MongooseRefreshTokenStore {
 
         if (!consumedDoc) {
           // Race condition: another concurrent request consumed this active token
-          await session.abortTransaction();
+          await session.abortTransaction().catch(() => {});
+          transactionStarted = false;
           return { concurrentRace: true };
         }
 
@@ -203,7 +233,8 @@ export class MongooseRefreshTokenStore {
         while (true) {
           try {
             await session.commitTransaction();
-            break; // Commit confirmed!
+            transactionStarted = false; // Confirmed commit
+            break;
           } catch (commitErr) {
             commitAttempt++;
             const isUnknownCommitResult = commitErr.hasErrorLabel?.('UnknownTransactionCommitResult') ||
@@ -221,20 +252,31 @@ export class MongooseRefreshTokenStore {
           successorDoc: createdSuccessor
         };
       } catch (err) {
-        await session.abortTransaction().catch(() => {});
+        if (transactionStarted && session) {
+          await session.abortTransaction().catch(() => {});
+          transactionStarted = false;
+        }
+
+        if (typeof onRollbackHook === 'function') {
+          try {
+            await onRollbackHook();
+          } catch {
+            // Ignore rollback hook errors
+          }
+        }
 
         // Check if TransientTransactionError and retry attempt remains
         const isTransient = err.hasErrorLabel?.('TransientTransactionError') ||
                             err.errorLabels?.includes('TransientTransactionError');
 
         if (isTransient && txnAttempt < maxTxnRetries) {
-          await session.endSession().catch(() => {});
+          await cleanupSession();
           continue; // Retry whole transaction
         }
 
         throw err;
       } finally {
-        await session.endSession().catch(() => {});
+        await cleanupSession();
       }
     }
   }
@@ -336,7 +378,8 @@ export class InMemoryRefreshTokenStore {
     nextTokenHash,
     successorDoc,
     now,
-    preCommitHook
+    preCommitHook,
+    onRollbackHook
   }) {
     if (this.simulateTopologyUnsupported) {
       throw new RefreshTokenError(
@@ -429,6 +472,13 @@ export class InMemoryRefreshTokenStore {
               continue; // Retry commit!
             } else {
               // Retry limit exceeded! Commit outcome is uncertain.
+              this.tokens.set(currentTokenId, snapshotCurrent);
+              this.tokens.delete(createdSuccessor.id);
+              if (typeof onRollbackHook === 'function') {
+                try {
+                  await onRollbackHook();
+                } catch {}
+              }
               const commitErr = new Error('UnknownTransactionCommitResult: network dropped during commit.');
               commitErr.errorLabels = ['UnknownTransactionCommitResult'];
               commitErr.hasErrorLabel = (label) => label === 'UnknownTransactionCommitResult';
@@ -658,12 +708,17 @@ export class RefreshTokenService {
               'Replay cache write failed. Rotation aborted to prevent delivery loss vulnerability.'
             );
           }
+        },
+        onRollbackHook: async () => {
+          if (cacheWriteSucceeded && typeof this.replayCache.deleteCachedResponseIfMatches === 'function') {
+            await this.replayCache.deleteCachedResponseIfMatches(tokenHash, nextTokenHash);
+          }
         }
       });
 
       if (rotationResult.concurrentRace) {
-        if (cacheWriteSucceeded) {
-          await this.replayCache.deleteCachedResponse(tokenHash);
+        if (cacheWriteSucceeded && typeof this.replayCache.deleteCachedResponseIfMatches === 'function') {
+          await this.replayCache.deleteCachedResponseIfMatches(tokenHash, nextTokenHash);
         }
         const reRead = await this.store.findByTokenHash(tokenHash);
         if (reRead && reRead.status === 'consumed') {

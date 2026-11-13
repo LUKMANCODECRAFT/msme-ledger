@@ -44,6 +44,30 @@ export class ConfigurationError extends Error {
 }
 
 /**
+ * Redacts credentials (username/password) embedded in URLs (e.g. redis://user:pass@host:port).
+ * 
+ * @param {string} rawUrl
+ * @returns {string}
+ */
+export function redactSensitiveUrl(rawUrl) {
+  if (typeof rawUrl !== 'string') return '';
+  return rawUrl.replace(/:\/\/([^\s/@]+)@/g, '://***:***@');
+}
+
+/**
+ * Sanitizes an error message or log string by redacting embedded URLs, secrets, or tokens.
+ * 
+ * @param {string} message
+ * @returns {string}
+ */
+export function sanitizeErrorMessage(message) {
+  if (typeof message !== 'string') return '';
+  return message
+    .replace(/:\/\/([^\s/@]+)@/g, '://***:***@')
+    .replace(/(password|secret|token|key|pwd)=([^\s&]+)/gi, '$1=***');
+}
+
+/**
  * Resolves a stable 32-byte Buffer key for AES-256-GCM.
  * In production, fails closed if REPLAY_CACHE_SECRET is missing or invalid.
  * 
@@ -243,7 +267,7 @@ export class RedisReplayCacheService {
     try {
       await this.client.set(redisKey, envelope, 'EX', effectiveTtl);
     } catch (err) {
-      throw new ReplayCacheOutageError(`Redis set failed: ${err.message}`);
+      throw new ReplayCacheOutageError(`Redis set failed: ${sanitizeErrorMessage(err.message)}`);
     }
   }
 
@@ -314,6 +338,28 @@ export class RedisReplayCacheService {
   }
 
   /**
+   * Safely deletes a cached response ONLY if the stored payload's successor matches expectedSuccessorHash.
+   * Prevents a failed transaction rollback from wiping out a concurrent successful rotation.
+   * 
+   * @param {string} tokenHash - Consumed token hash (cache key)
+   * @param {string} expectedSuccessorHash - The staged successor hash to compare
+   * @returns {Promise<boolean>}
+   */
+  async deleteCachedResponseIfMatches(tokenHash, expectedSuccessorHash) {
+    if (!tokenHash || !expectedSuccessorHash || this.simulatedOutage) return false;
+    try {
+      const cached = await this.getCachedResponse(tokenHash);
+      if (cached && (cached.tokenHash === expectedSuccessorHash || cached.nextTokenHash === expectedSuccessorHash || cached.successorTokenHash === expectedSuccessorHash)) {
+        await this.deleteCachedResponse(tokenHash);
+        return true;
+      }
+    } catch {
+      // Best effort
+    }
+    return false;
+  }
+
+  /**
    * Pings Redis to verify connectivity during startup and health/readiness checks.
    * 
    * @returns {Promise<boolean>}
@@ -326,7 +372,7 @@ export class RedisReplayCacheService {
       const res = await this.client.ping();
       return res === 'PONG' || res === true;
     } catch (err) {
-      throw new ReplayCacheOutageError(`Redis ping failed: ${err.message}`);
+      throw new ReplayCacheOutageError(`Redis ping failed: ${sanitizeErrorMessage(err.message)}`);
     }
   }
 
@@ -437,6 +483,20 @@ export class InMemoryReplayCacheService {
     if (tokenHash) {
       this.store.delete(tokenHash);
     }
+  }
+
+  async deleteCachedResponseIfMatches(tokenHash, expectedSuccessorHash) {
+    if (!tokenHash || !expectedSuccessorHash || this.simulatedOutage) return false;
+    try {
+      const cached = await this.getCachedResponse(tokenHash);
+      if (cached && (cached.tokenHash === expectedSuccessorHash || cached.nextTokenHash === expectedSuccessorHash || cached.successorTokenHash === expectedSuccessorHash)) {
+        await this.deleteCachedResponse(tokenHash);
+        return true;
+      }
+    } catch {
+      // Best effort
+    }
+    return false;
   }
 
   clear() {

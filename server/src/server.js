@@ -19,11 +19,15 @@ import { RefreshTokenService, MongooseRefreshTokenStore } from './services/refre
 import {
   RedisReplayCacheService,
   InMemoryReplayCacheService,
-  ConfigurationError
+  ConfigurationError,
+  sanitizeErrorMessage,
+  redactSensitiveUrl
 } from './services/replayCacheService.js';
 
 export const PORT = process.env.PORT || 3000;
-export const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/msme_ledger';
+export const MONGO_URI = process.env.NODE_ENV === 'production'
+  ? process.env.MONGO_URI
+  : (process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/msme_ledger');
 
 /**
  * HTTP 410 Gone handler for retired legacy v1 routes.
@@ -68,58 +72,88 @@ export async function initializeProductionServices(options = {}) {
     }
   }
 
-  // 2. Replay Cache Resolution & Connectivity Verification
+  // 3. Replay Cache Resolution & Connectivity Verification
   let replayCache;
-  if (options.replayCache) {
-    replayCache = options.replayCache;
-  } else if (isProduction) {
-    const redisUrl = options.redisUrl || process.env.REDIS_URL;
-    const redisSecret = options.replayCacheSecret || process.env.REPLAY_CACHE_SECRET;
+  if (isProduction) {
+    if (options.replayCache) {
+      // In production, reject InMemoryReplayCacheService or arbitrary adapters
+      if (!(options.replayCache instanceof RedisReplayCacheService)) {
+        throw new ConfigurationError(
+          'INVALID_PRODUCTION_REPLAY_CACHE',
+          'Production startup failed: An approved RedisReplayCacheService is required in production.'
+        );
+      }
+      replayCache = options.replayCache;
+    } else {
+      const redisUrl = options.redisUrl || process.env.REDIS_URL;
+      const redisSecret = options.replayCacheSecret || process.env.REPLAY_CACHE_SECRET;
 
-    if (!redisUrl) {
-      throw new ConfigurationError(
-        'MISSING_REDIS_URL',
-        'Production startup failed: REDIS_URL must be explicitly configured for shared replay cache.'
-      );
+      if (!redisUrl) {
+        throw new ConfigurationError(
+          'MISSING_REDIS_URL',
+          'Production startup failed: REDIS_URL must be explicitly configured for shared replay cache.'
+        );
+      }
+      if (!redisSecret) {
+        throw new ConfigurationError(
+          'MISSING_REPLAY_CACHE_SECRET',
+          'Production startup failed: REPLAY_CACHE_SECRET must be explicitly configured.'
+        );
+      }
+
+      replayCache = new RedisReplayCacheService({
+        redisUrl,
+        secret: redisSecret,
+        redisClient: options.redisClient
+      });
     }
-    if (!redisSecret) {
-      throw new ConfigurationError(
-        'MISSING_REPLAY_CACHE_SECRET',
-        'Production startup failed: REPLAY_CACHE_SECRET must be explicitly configured.'
-      );
-    }
 
-    replayCache = new RedisReplayCacheService({
-      redisUrl,
-      secret: redisSecret,
-      redisClient: options.redisClient
-    });
-
-    // Readiness / connectivity verification
+    // In production, always perform live connectivity check (even if injected)
     try {
       await replayCache.ping();
     } catch (redisErr) {
       throw new ConfigurationError(
         'REDIS_READINESS_FAILED',
-        `Production startup failed: Unable to connect to Redis at '${redisUrl}'. Details: ${redisErr.message}`
+        `Production startup failed: Unable to establish live connectivity to Redis. Details: ${sanitizeErrorMessage(redisErr.message)}`
       );
     }
   } else {
-    // Non-production fallback
-    if (options.redisClient || options.redisUrl || process.env.REDIS_URL) {
+    // Non-production fallback (development / tests)
+    if (options.replayCache) {
+      replayCache = options.replayCache;
+    } else if (options.redisClient || options.redisUrl || process.env.REDIS_URL) {
       replayCache = new RedisReplayCacheService(options);
       try {
         await replayCache.ping();
       } catch (err) {
-        throw new ConfigurationError('REDIS_READINESS_FAILED', `Redis connection failed: ${err.message}`);
+        throw new ConfigurationError(
+          'REDIS_READINESS_FAILED',
+          `Redis connection failed: ${sanitizeErrorMessage(err.message)}`
+        );
       }
     } else {
       replayCache = new InMemoryReplayCacheService(options);
     }
   }
 
-  // 3. RefreshTokenService Construction with Real Store and Injected Cache
-  const store = options.store || new MongooseRefreshTokenStore();
+  // 4. RefreshTokenStore & Service Construction with Real Store and Injected Cache
+  let store;
+  if (isProduction) {
+    if (options.store) {
+      if (!(options.store instanceof MongooseRefreshTokenStore)) {
+        throw new ConfigurationError(
+          'INVALID_PRODUCTION_TOKEN_STORE',
+          'Production startup failed: An approved persistent MongooseRefreshTokenStore is required in production.'
+        );
+      }
+      store = options.store;
+    } else {
+      store = new MongooseRefreshTokenStore();
+    }
+  } else {
+    store = options.store || new MongooseRefreshTokenStore();
+  }
+
   const tokenService = new RefreshTokenService({
     store,
     replayCache,
@@ -177,11 +211,26 @@ export function createApp(options = {}) {
  * @returns {Promise<{ app: import('express').Application, server: any, tokenService: any, replayCache: any, shutdown: Function }>}
  */
 export async function startServer(options = {}) {
+  const isProduction = process.env.NODE_ENV === 'production';
   const { tokenService, replayCache } = await initializeProductionServices(options);
   const app = createApp({ ...options, tokenService });
 
-  const mongoUri = options.mongoUri || MONGO_URI;
-  await mongoose.connect(mongoUri);
+  const mongoUri = options.mongoUri || process.env.MONGO_URI || (!isProduction ? 'mongodb://127.0.0.1:27017/msme_ledger' : null);
+  if (isProduction && (!mongoUri || !mongoUri.trim())) {
+    throw new ConfigurationError(
+      'MISSING_MONGO_URI',
+      'Production startup failed: MONGO_URI must be explicitly configured.'
+    );
+  }
+
+  try {
+    await mongoose.connect(mongoUri);
+  } catch (mongoErr) {
+    throw new ConfigurationError(
+      'MONGO_CONNECTION_FAILED',
+      `Production startup failed: Unable to connect to MongoDB. Details: ${sanitizeErrorMessage(mongoErr.message)}`
+    );
+  }
 
   const port = options.port || PORT;
   const server = await new Promise((resolve, reject) => {
@@ -211,7 +260,7 @@ if (process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
       console.log(`SB Manager server is running on http://localhost:${PORT}`);
     })
     .catch((error) => {
-      console.error('Server failed to start:', error.message);
+      console.error('Server failed to start:', sanitizeErrorMessage(error.message));
       process.exit(1);
     });
 }
