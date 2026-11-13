@@ -22,9 +22,10 @@ import { verifyAccessToken } from '../services/jwtService.js';
  * Creates an Express authentication middleware bound to a public key resolver.
  * 
  * @param {string|Function|Object} publicKeyResolver - PEM public key, resolver function (kid => pem), or map
+ * @param {Object} [options] - Optional verification options (expectedKid, expectedAudience, expectedIssuer, etc.)
  * @returns {import('express').RequestHandler}
  */
-export function createAuthMiddleware(publicKeyResolver) {
+export function createAuthMiddleware(publicKeyResolver, options = {}) {
   if (!publicKeyResolver) {
     throw new TypeError('createAuthMiddleware requires a valid publicKeyResolver.');
   }
@@ -59,7 +60,7 @@ export function createAuthMiddleware(publicKeyResolver) {
 
     // 3. Cryptographically verify the RS256 token
     try {
-      const payload = await verifyAccessToken(token, publicKeyResolver);
+      const payload = await verifyAccessToken(token, publicKeyResolver, options);
 
       // 4. Attach verified authenticated identity to req.user
       // Invariant: Completely ignore and discard any user/tenant claims from req.body or req.query

@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import crypto from 'crypto';
+import express from 'express';
 
 // Stage 4.1A Imports
 import {
@@ -128,7 +129,7 @@ describe('Stage 4.1A: Authentication Foundations', () => {
       expect(() => normalizeEmail(undefined)).toThrow(TypeError);
     });
 
-    it('declares case-insensitive collation { locale: "en", strength: 2 } on User email index', () => {
+    it('declares case-insensitive collation { locale: "en", strength: 2 } on User email index metadata', () => {
       const indexes = User.schema.indexes();
       const emailIndex = indexes.find(([fields, opts]) => fields.email === 1 && opts?.unique === true);
 
@@ -151,9 +152,10 @@ describe('Stage 4.1A: Authentication Foundations', () => {
       expect(schemaPaths).toContain('updatedAt');
     });
 
-    it('simulates database-level case-insensitive uniqueness collision (E11000)', () => {
-      // Simulating MongoDB unique index behavior under strength 2 collation:
-      // In strength 2 collation, 'Merchant@Domain.COM' and 'merchant@domain.com' collide as duplicate keys
+    it('simulates application-level case-insensitive uniqueness collision (unit simulation, not a live MongoDB integration test)', () => {
+      // NOTE: This is a unit-level simulation of strength 2 collation collision logic.
+      // Live database index enforcement against MongoDB requires an active, isolated mongod instance
+      // and is explicitly marked as NOT yet integration-tested in local CI without Docker/MongoDB daemon.
       const indexCollator = new Intl.Collator('en', { sensitivity: 'base' });
       const registeredEmails = [];
 
@@ -179,19 +181,21 @@ describe('Stage 4.1A: Authentication Foundations', () => {
   });
 
   // =========================================================================
-  // SECTION 3: RS256 Access Token Infrastructure
+  // SECTION 3: RS256 Access Token Infrastructure & Key-ID Enforcement
   // =========================================================================
-  describe('RS256 Access-Token Infrastructure', () => {
+  describe('RS256 Access-Token Infrastructure & Key-ID Enforcement', () => {
     let testKeys;
+    let rotationKeys;
 
     beforeAll(() => {
-      testKeys = generateTestRsaKeyPair('sb-test-kid-2026');
+      testKeys = generateTestRsaKeyPair('sb-auth-key-2026');
+      rotationKeys = generateTestRsaKeyPair('sb-auth-key-2027');
     });
 
     it('generates ephemeral RSA 2048-bit key pairs with valid PEM formatting', () => {
       expect(testKeys.publicKey).toContain('-----BEGIN PUBLIC KEY-----');
       expect(testKeys.privateKey).toContain('-----BEGIN PRIVATE KEY-----');
-      expect(testKeys.kid).toBe('sb-test-kid-2026');
+      expect(testKeys.kid).toBe('sb-auth-key-2026');
     });
 
     it('issues valid RS256 access token with exact Blueprint claims schema', async () => {
@@ -205,7 +209,9 @@ describe('Stage 4.1A: Authentication Foundations', () => {
         { kid: testKeys.kid, expiresInSeconds: 900 }
       );
 
-      const payload = await verifyAccessToken(token, testKeys.publicKey);
+      const payload = await verifyAccessToken(token, {
+        [testKeys.kid]: testKeys.publicKey
+      });
 
       expect(payload.sub).toBe('usr_test_12345');
       expect(payload.email).toBe('merchant@shop.ng'); // normalized
@@ -220,30 +226,356 @@ describe('Stage 4.1A: Authentication Foundations', () => {
       expect(payload.exp - payload.iat).toBe(900); // exactly 15 minutes
     });
 
-    it('supports public key resolution via resolver function and key map', async () => {
+    it('rejects signing when kid is missing from options and environment', () => {
+      const originalEnv = process.env.JWT_KEY_ID;
+      delete process.env.JWT_KEY_ID;
+      try {
+        expect(() => {
+          signAccessToken(
+            { sub: 'usr_1', email: 'test@example.com' },
+            testKeys.privateKey
+          );
+        }).toThrow('MISSING_KEY_ID');
+      } finally {
+        if (originalEnv) process.env.JWT_KEY_ID = originalEnv;
+      }
+    });
+
+    // -----------------------------------------------------------------------
+    // Key-ID Enforcement Negative Tests (Requirement 1)
+    // -----------------------------------------------------------------------
+    it('KEY-ID: rejects token with unknown kid against key map', async () => {
       const token = signAccessToken(
-        { sub: 'usr_func_1', email: 'func@test.com' },
+        { sub: 'usr_1', email: 'test@example.com' },
+        testKeys.privateKey,
+        { kid: 'completely-unknown-kid' }
+      );
+
+      const keyMap = { [testKeys.kid]: testKeys.publicKey };
+      await expect(verifyAccessToken(token, keyMap)).rejects.toThrow('UNKNOWN_KEY_ID');
+    });
+
+    it('KEY-ID: rejects token with mismatched kid against static public key with expectedKid', async () => {
+      const token = signAccessToken(
+        { sub: 'usr_1', email: 'test@example.com' },
+        testKeys.privateKey,
+        { kid: 'unmatched-kid' }
+      );
+
+      // Configuration specifies expectedKid: testKeys.kid
+      await expect(
+        verifyAccessToken(token, {
+          publicKey: testKeys.publicKey,
+          expectedKid: testKeys.kid
+        })
+      ).rejects.toThrow('MISMATCHED_KEY_ID');
+    });
+
+    it('KEY-ID: rejects static public key string if no expectedKid is configured', async () => {
+      const token = signAccessToken(
+        { sub: 'usr_1', email: 'test@example.com' },
         testKeys.privateKey,
         { kid: testKeys.kid }
       );
 
-      // Resolver function
-      const resolverFn = async (kid) => {
-        if (kid === testKeys.kid) return testKeys.publicKey;
-        return null;
-      };
-      const verifiedWithFn = await verifyAccessToken(token, resolverFn);
-      expect(verifiedWithFn.sub).toBe('usr_func_1');
-
-      // Key map object
-      const keyMap = { [testKeys.kid]: testKeys.publicKey };
-      const verifiedWithMap = await verifyAccessToken(token, keyMap);
-      expect(verifiedWithMap.sub).toBe('usr_func_1');
+      const originalEnv = process.env.JWT_KEY_ID;
+      delete process.env.JWT_KEY_ID;
+      try {
+        // Passing raw PEM string without expectedKid option
+        await expect(verifyAccessToken(token, testKeys.publicKey)).rejects.toThrow('STATIC_KEY_MISSING_EXPECTED_KID');
+      } finally {
+        if (originalEnv) process.env.JWT_KEY_ID = originalEnv;
+      }
     });
 
-    // Security Negative Tests
+    it('KEY-ID: rejects token with correct signature but incorrect key ID header', async () => {
+      // Attacker signs with testKeys.privateKey, but alters kid header to rotationKeys.kid
+      const jwt = (await import('jsonwebtoken')).default;
+      const forgedHeaderToken = jwt.sign(
+        {
+          sub: 'usr_1',
+          email: 'test@example.com',
+          defaultBusinessId: null,
+          iss: JWT_CONFIG.ISSUER,
+          aud: JWT_CONFIG.AUDIENCE,
+          token_use: JWT_CONFIG.TOKEN_USE,
+          token_type: JWT_CONFIG.TOKEN_TYPE,
+          jti: crypto.randomUUID(),
+          iat: Math.floor(Date.now() / 1000),
+          exp: Math.floor(Date.now() / 1000) + 900
+        },
+        testKeys.privateKey,
+        {
+          algorithm: 'RS256',
+          keyid: rotationKeys.kid // INCORRECT kid header
+        }
+      );
+
+      // Verifier has both keys in map
+      const multiKeyMap = {
+        [testKeys.kid]: testKeys.publicKey,
+        [rotationKeys.kid]: rotationKeys.publicKey
+      };
+
+      // Since header says rotationKeys.kid, resolver will load rotationKeys.publicKey,
+      // and signature verification MUST fail because signature was made with testKeys.privateKey!
+      await expect(verifyAccessToken(forgedHeaderToken, multiKeyMap)).rejects.toThrow('INVALID_TOKEN');
+    });
+
+    it('KEY-ID: verifies valid key ID and valid signature successfully', async () => {
+      const token = signAccessToken(
+        { sub: 'usr_valid_kid', email: 'valid@example.com' },
+        testKeys.privateKey,
+        { kid: testKeys.kid }
+      );
+
+      const verified = await verifyAccessToken(token, {
+        [testKeys.kid]: testKeys.publicKey
+      });
+      expect(verified.sub).toBe('usr_valid_kid');
+    });
+
+    it('KEY-ID: supports key rotation with two distinct key IDs and public keys', async () => {
+      const keyMap = {
+        [testKeys.kid]: testKeys.publicKey,
+        [rotationKeys.kid]: rotationKeys.publicKey
+      };
+
+      // Token 1: signed with 2026 key
+      const token2026 = signAccessToken(
+        { sub: 'usr_2026', email: 'user2026@example.com' },
+        testKeys.privateKey,
+        { kid: testKeys.kid }
+      );
+
+      // Token 2: signed with 2027 key
+      const token2027 = signAccessToken(
+        { sub: 'usr_2027', email: 'user2027@example.com' },
+        rotationKeys.privateKey,
+        { kid: rotationKeys.kid }
+      );
+
+      const payload2026 = await verifyAccessToken(token2026, keyMap);
+      const payload2027 = await verifyAccessToken(token2027, keyMap);
+
+      expect(payload2026.sub).toBe('usr_2026');
+      expect(payload2027.sub).toBe('usr_2027');
+    });
+
+    // -----------------------------------------------------------------------
+    // Complete JWT Claim Validation Negative Tests (Requirement 2)
+    // -----------------------------------------------------------------------
+    it('CLAIMS: rejects token missing sub claim or having empty sub', async () => {
+      const jwt = (await import('jsonwebtoken')).default;
+      const basePayload = {
+        email: 'test@example.com',
+        defaultBusinessId: null,
+        iss: JWT_CONFIG.ISSUER,
+        aud: JWT_CONFIG.AUDIENCE,
+        token_use: JWT_CONFIG.TOKEN_USE,
+        token_type: JWT_CONFIG.TOKEN_TYPE,
+        jti: crypto.randomUUID(),
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 900
+      };
+
+      // Missing sub
+      const tokenNoSub = jwt.sign(basePayload, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
+      await expect(verifyAccessToken(tokenNoSub, { [testKeys.kid]: testKeys.publicKey })).rejects.toThrow('INVALID_TOKEN_SUBJECT');
+
+      // Empty sub
+      const tokenEmptySub = jwt.sign({ ...basePayload, sub: '   ' }, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
+      await expect(verifyAccessToken(tokenEmptySub, { [testKeys.kid]: testKeys.publicKey })).rejects.toThrow('INVALID_TOKEN_SUBJECT');
+    });
+
+    it('CLAIMS: rejects token missing jti claim or having empty jti', async () => {
+      const jwt = (await import('jsonwebtoken')).default;
+      const basePayload = {
+        sub: 'usr_1',
+        email: 'test@example.com',
+        defaultBusinessId: null,
+        iss: JWT_CONFIG.ISSUER,
+        aud: JWT_CONFIG.AUDIENCE,
+        token_use: JWT_CONFIG.TOKEN_USE,
+        token_type: JWT_CONFIG.TOKEN_TYPE,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 900
+      };
+
+      // Missing jti
+      const tokenNoJti = jwt.sign(basePayload, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
+      await expect(verifyAccessToken(tokenNoJti, { [testKeys.kid]: testKeys.publicKey })).rejects.toThrow('INVALID_TOKEN_JTI');
+
+      // Empty jti
+      const tokenEmptyJti = jwt.sign({ ...basePayload, jti: '' }, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
+      await expect(verifyAccessToken(tokenEmptyJti, { [testKeys.kid]: testKeys.publicKey })).rejects.toThrow('INVALID_TOKEN_JTI');
+    });
+
+    it('CLAIMS: rejects token with invalid or unnormalized email', async () => {
+      const jwt = (await import('jsonwebtoken')).default;
+      const basePayload = {
+        sub: 'usr_1',
+        defaultBusinessId: null,
+        iss: JWT_CONFIG.ISSUER,
+        aud: JWT_CONFIG.AUDIENCE,
+        token_use: JWT_CONFIG.TOKEN_USE,
+        token_type: JWT_CONFIG.TOKEN_TYPE,
+        jti: crypto.randomUUID(),
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 900
+      };
+
+      // Missing email
+      const tokenNoEmail = jwt.sign(basePayload, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
+      await expect(verifyAccessToken(tokenNoEmail, { [testKeys.kid]: testKeys.publicKey })).rejects.toThrow('INVALID_TOKEN_EMAIL');
+
+      // Malformed email
+      const tokenBadEmail = jwt.sign({ ...basePayload, email: 'notanemail' }, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
+      await expect(verifyAccessToken(tokenBadEmail, { [testKeys.kid]: testKeys.publicKey })).rejects.toThrow('INVALID_TOKEN_EMAIL');
+
+      // Unnormalized email (uppercase characters present)
+      const tokenUnnormalized = jwt.sign({ ...basePayload, email: 'User@Example.COM' }, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
+      await expect(verifyAccessToken(tokenUnnormalized, { [testKeys.kid]: testKeys.publicKey })).rejects.toThrow('INVALID_TOKEN_EMAIL');
+    });
+
+    it('CLAIMS: accepts null defaultBusinessId and non-empty string, rejects malformed values', async () => {
+      const jwt = (await import('jsonwebtoken')).default;
+      const makeToken = (bizId) => {
+        const payload = {
+          sub: 'usr_1',
+          email: 'test@example.com',
+          defaultBusinessId: bizId,
+          iss: JWT_CONFIG.ISSUER,
+          aud: JWT_CONFIG.AUDIENCE,
+          token_use: JWT_CONFIG.TOKEN_USE,
+          token_type: JWT_CONFIG.TOKEN_TYPE,
+          jti: crypto.randomUUID(),
+          iat: Math.floor(Date.now() / 1000),
+          exp: Math.floor(Date.now() / 1000) + 900
+        };
+        return jwt.sign(payload, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
+      };
+
+      const keyMap = { [testKeys.kid]: testKeys.publicKey };
+
+      // Null is valid
+      const tokenNull = makeToken(null);
+      const verifiedNull = await verifyAccessToken(tokenNull, keyMap);
+      expect(verifiedNull.defaultBusinessId).toBeNull();
+
+      // Non-empty string is valid
+      const tokenValidStr = makeToken('biz_001');
+      const verifiedStr = await verifyAccessToken(tokenValidStr, keyMap);
+      expect(verifiedStr.defaultBusinessId).toBe('biz_001');
+
+      // Empty string is rejected
+      const tokenEmptyStr = makeToken('');
+      await expect(verifyAccessToken(tokenEmptyStr, keyMap)).rejects.toThrow('INVALID_TOKEN_BUSINESS_ID');
+
+      // Whitespace only is rejected
+      const tokenWhitespace = makeToken('   ');
+      await expect(verifyAccessToken(tokenWhitespace, keyMap)).rejects.toThrow('INVALID_TOKEN_BUSINESS_ID');
+
+      // Number is rejected
+      const tokenNumber = makeToken(12345);
+      await expect(verifyAccessToken(tokenNumber, keyMap)).rejects.toThrow('INVALID_TOKEN_BUSINESS_ID');
+    });
+
+    it('CLAIMS: rejects non-integer Unix timestamps in iat or exp', async () => {
+      const jwt = (await import('jsonwebtoken')).default;
+      const basePayload = {
+        sub: 'usr_1',
+        email: 'test@example.com',
+        defaultBusinessId: null,
+        iss: JWT_CONFIG.ISSUER,
+        aud: JWT_CONFIG.AUDIENCE,
+        token_use: JWT_CONFIG.TOKEN_USE,
+        token_type: JWT_CONFIG.TOKEN_TYPE,
+        jti: crypto.randomUUID()
+      };
+
+      const keyMap = { [testKeys.kid]: testKeys.publicKey };
+
+      const now = Math.floor(Date.now() / 1000);
+      // Float iat
+      const tokenFloatIat = jwt.sign({ ...basePayload, iat: now + 0.5, exp: now + 900 }, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
+      await expect(verifyAccessToken(tokenFloatIat, keyMap)).rejects.toThrow('INVALID_TOKEN_TIMESTAMPS');
+
+      // Float exp
+      const tokenFloatExp = jwt.sign({ ...basePayload, iat: now, exp: now + 900.8 }, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
+      await expect(verifyAccessToken(tokenFloatExp, keyMap)).rejects.toThrow('INVALID_TOKEN_TIMESTAMPS');
+    });
+
+    it('CLAIMS: rejects tokens where exp <= iat', async () => {
+      const jwt = (await import('jsonwebtoken')).default;
+      const now = Math.floor(Date.now() / 1000);
+      const payload = {
+        sub: 'usr_1',
+        email: 'test@example.com',
+        defaultBusinessId: null,
+        iss: JWT_CONFIG.ISSUER,
+        aud: JWT_CONFIG.AUDIENCE,
+        token_use: JWT_CONFIG.TOKEN_USE,
+        token_type: JWT_CONFIG.TOKEN_TYPE,
+        jti: crypto.randomUUID(),
+        iat: now,
+        exp: now // exp equals iat
+      };
+
+      const token = jwt.sign(payload, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
+      await expect(verifyAccessToken(token, { [testKeys.kid]: testKeys.publicKey })).rejects.toThrow('INVALID_TOKEN_EXPIRY');
+    });
+
+    it('CLAIMS: rejects future-issued tokens beyond clock tolerance', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const futureIat = now + 120; // 2 minutes into future (tolerance is 5s)
+
+      const jwt = (await import('jsonwebtoken')).default;
+      const payload = {
+        sub: 'usr_1',
+        email: 'test@example.com',
+        defaultBusinessId: null,
+        iss: JWT_CONFIG.ISSUER,
+        aud: JWT_CONFIG.AUDIENCE,
+        token_use: JWT_CONFIG.TOKEN_USE,
+        token_type: JWT_CONFIG.TOKEN_TYPE,
+        jti: crypto.randomUUID(),
+        iat: futureIat,
+        exp: futureIat + 900
+      };
+
+      const token = jwt.sign(payload, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
+      await expect(
+        verifyAccessToken(token, { [testKeys.kid]: testKeys.publicKey }, { nowSeconds: now, clockToleranceSeconds: 5 })
+      ).rejects.toThrow('TOKEN_ISSUED_IN_FUTURE');
+    });
+
+    it('CLAIMS: enforces Blueprint 900-second access-token lifetime', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const jwt = (await import('jsonwebtoken')).default;
+      const payload = {
+        sub: 'usr_1',
+        email: 'test@example.com',
+        defaultBusinessId: null,
+        iss: JWT_CONFIG.ISSUER,
+        aud: JWT_CONFIG.AUDIENCE,
+        token_use: JWT_CONFIG.TOKEN_USE,
+        token_type: JWT_CONFIG.TOKEN_TYPE,
+        jti: crypto.randomUUID(),
+        iat: now,
+        exp: now + 901 // 901 seconds exceeds 900s limit
+      };
+
+      const token = jwt.sign(payload, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
+      await expect(
+        verifyAccessToken(token, { [testKeys.kid]: testKeys.publicKey }, { maxLifetimeSeconds: 900 })
+      ).rejects.toThrow('TOKEN_LIFETIME_EXCEEDED');
+    });
+
+    // -----------------------------------------------------------------------
+    // Core Security Invariants
+    // -----------------------------------------------------------------------
     it('SECURITY: strictly rejects tokens signed with HS256 (algorithm substitution attack)', async () => {
-      // Simulate an attacker attempting to use the public key as an HMAC secret
       const jwt = (await import('jsonwebtoken')).default;
       const fakeHsToken = jwt.sign(
         {
@@ -254,14 +586,16 @@ describe('Stage 4.1A: Authentication Foundations', () => {
           token_use: JWT_CONFIG.TOKEN_USE,
           token_type: JWT_CONFIG.TOKEN_TYPE
         },
-        testKeys.publicKey, // HMAC with public key as secret
+        testKeys.publicKey,
         {
           algorithm: 'HS256',
           keyid: testKeys.kid
         }
       );
 
-      await expect(verifyAccessToken(fakeHsToken, testKeys.publicKey)).rejects.toThrow('INVALID_ALGORITHM');
+      await expect(
+        verifyAccessToken(fakeHsToken, { [testKeys.kid]: testKeys.publicKey })
+      ).rejects.toThrow('INVALID_ALGORITHM');
     });
 
     it('SECURITY: strictly rejects tokens with "none" algorithm', async () => {
@@ -275,7 +609,9 @@ describe('Stage 4.1A: Authentication Foundations', () => {
       })).toString('base64url');
       const noneToken = `${headerB64}.${payloadB64}.`;
 
-      await expect(verifyAccessToken(noneToken, testKeys.publicKey)).rejects.toThrow('INVALID_ALGORITHM');
+      await expect(
+        verifyAccessToken(noneToken, { [testKeys.kid]: testKeys.publicKey })
+      ).rejects.toThrow('INVALID_ALGORITHM');
     });
 
     it('SECURITY: strictly rejects tokens without kid header', async () => {
@@ -296,17 +632,21 @@ describe('Stage 4.1A: Authentication Foundations', () => {
         }
       );
 
-      await expect(verifyAccessToken(tokenWithoutKid, testKeys.publicKey)).rejects.toThrow('MISSING_KID');
+      await expect(
+        verifyAccessToken(tokenWithoutKid, { [testKeys.kid]: testKeys.publicKey })
+      ).rejects.toThrow('MISSING_KID');
     });
 
     it('SECURITY: rejects expired access tokens with TOKEN_EXPIRED error code', async () => {
       const expiredToken = signAccessToken(
         { sub: 'usr_exp', email: 'exp@test.com' },
         testKeys.privateKey,
-        { kid: testKeys.kid, expiresInSeconds: -10 } // already expired
+        { kid: testKeys.kid, expiresInSeconds: -10 }
       );
 
-      await expect(verifyAccessToken(expiredToken, testKeys.publicKey)).rejects.toThrow('TOKEN_EXPIRED');
+      await expect(
+        verifyAccessToken(expiredToken, { [testKeys.kid]: testKeys.publicKey })
+      ).rejects.toThrow('TOKEN_EXPIRED');
     });
 
     it('SECURITY: rejects tokens with invalid or tampered signature', async () => {
@@ -316,23 +656,13 @@ describe('Stage 4.1A: Authentication Foundations', () => {
         { kid: testKeys.kid }
       );
 
-      // Corrupt the signature portion
       const parts = token.split('.');
       const tamperedSignature = parts[2].substring(0, parts[2].length - 4) + 'AAAA';
       const tamperedToken = `${parts[0]}.${parts[1]}.${tamperedSignature}`;
 
-      await expect(verifyAccessToken(tamperedToken, testKeys.publicKey)).rejects.toThrow('INVALID_TOKEN');
-    });
-
-    it('SECURITY: rejects token if signed with an unmatching private key', async () => {
-      const anotherKeypair = generateTestRsaKeyPair('another-kid');
-      const forgedToken = signAccessToken(
-        { sub: 'usr_forged', email: 'forged@test.com' },
-        anotherKeypair.privateKey,
-        { kid: testKeys.kid } // using legitimate kid header with wrong key
-      );
-
-      await expect(verifyAccessToken(forgedToken, testKeys.publicKey)).rejects.toThrow('INVALID_TOKEN');
+      await expect(
+        verifyAccessToken(tamperedToken, { [testKeys.kid]: testKeys.publicKey })
+      ).rejects.toThrow('INVALID_TOKEN');
     });
 
     it('SECURITY: rejects token with wrong audience', async () => {
@@ -344,7 +674,10 @@ describe('Stage 4.1A: Authentication Foundations', () => {
           iss: JWT_CONFIG.ISSUER,
           aud: 'wrong-audience',
           token_use: JWT_CONFIG.TOKEN_USE,
-          token_type: JWT_CONFIG.TOKEN_TYPE
+          token_type: JWT_CONFIG.TOKEN_TYPE,
+          jti: crypto.randomUUID(),
+          iat: Math.floor(Date.now() / 1000),
+          exp: Math.floor(Date.now() / 1000) + 900
         },
         testKeys.privateKey,
         {
@@ -353,7 +686,9 @@ describe('Stage 4.1A: Authentication Foundations', () => {
         }
       );
 
-      await expect(verifyAccessToken(wrongAudToken, testKeys.publicKey)).rejects.toThrow('INVALID_TOKEN');
+      await expect(
+        verifyAccessToken(wrongAudToken, { [testKeys.kid]: testKeys.publicKey })
+      ).rejects.toThrow('INVALID_TOKEN');
     });
 
     it('SECURITY: rejects token with wrong issuer', async () => {
@@ -365,7 +700,10 @@ describe('Stage 4.1A: Authentication Foundations', () => {
           iss: 'malicious-issuer',
           aud: JWT_CONFIG.AUDIENCE,
           token_use: JWT_CONFIG.TOKEN_USE,
-          token_type: JWT_CONFIG.TOKEN_TYPE
+          token_type: JWT_CONFIG.TOKEN_TYPE,
+          jti: crypto.randomUUID(),
+          iat: Math.floor(Date.now() / 1000),
+          exp: Math.floor(Date.now() / 1000) + 900
         },
         testKeys.privateKey,
         {
@@ -374,7 +712,9 @@ describe('Stage 4.1A: Authentication Foundations', () => {
         }
       );
 
-      await expect(verifyAccessToken(wrongIssToken, testKeys.publicKey)).rejects.toThrow('INVALID_TOKEN');
+      await expect(
+        verifyAccessToken(wrongIssToken, { [testKeys.kid]: testKeys.publicKey })
+      ).rejects.toThrow('INVALID_TOKEN');
     });
 
     it('SECURITY: rejects token with wrong token_use (e.g. refresh)', async () => {
@@ -383,10 +723,12 @@ describe('Stage 4.1A: Authentication Foundations', () => {
         {
           sub: 'usr_1',
           email: 'test@test.com',
+          defaultBusinessId: null,
           iss: JWT_CONFIG.ISSUER,
           aud: JWT_CONFIG.AUDIENCE,
-          token_use: 'refresh', // NOT access
+          token_use: 'refresh',
           token_type: JWT_CONFIG.TOKEN_TYPE,
+          jti: crypto.randomUUID(),
           iat: Math.floor(Date.now() / 1000),
           exp: Math.floor(Date.now() / 1000) + 900
         },
@@ -397,7 +739,9 @@ describe('Stage 4.1A: Authentication Foundations', () => {
         }
       );
 
-      await expect(verifyAccessToken(refreshToken, testKeys.publicKey)).rejects.toThrow('INVALID_TOKEN_USE');
+      await expect(
+        verifyAccessToken(refreshToken, { [testKeys.kid]: testKeys.publicKey })
+      ).rejects.toThrow('INVALID_TOKEN_USE');
     });
 
     it('SECURITY: rejects token with wrong token_type', async () => {
@@ -406,10 +750,12 @@ describe('Stage 4.1A: Authentication Foundations', () => {
         {
           sub: 'usr_1',
           email: 'test@test.com',
+          defaultBusinessId: null,
           iss: JWT_CONFIG.ISSUER,
           aud: JWT_CONFIG.AUDIENCE,
           token_use: JWT_CONFIG.TOKEN_USE,
-          token_type: 'platform_admin_access', // NOT merchant_access
+          token_type: 'platform_admin_access',
+          jti: crypto.randomUUID(),
           iat: Math.floor(Date.now() / 1000),
           exp: Math.floor(Date.now() / 1000) + 900
         },
@@ -420,20 +766,22 @@ describe('Stage 4.1A: Authentication Foundations', () => {
         }
       );
 
-      await expect(verifyAccessToken(adminToken, testKeys.publicKey)).rejects.toThrow('INVALID_TOKEN_TYPE');
+      await expect(
+        verifyAccessToken(adminToken, { [testKeys.kid]: testKeys.publicKey })
+      ).rejects.toThrow('INVALID_TOKEN_TYPE');
     });
   });
 
   // =========================================================================
-  // SECTION 4: Authentication Middleware Foundations
+  // SECTION 4: Authentication Middleware Foundations (Unit Mock Tests)
   // =========================================================================
-  describe('Authentication Middleware Foundation', () => {
+  describe('Authentication Middleware Foundation (Unit Mock Tests)', () => {
     let testKeys;
     let authMiddleware;
 
     beforeAll(() => {
       testKeys = generateTestRsaKeyPair('mw-test-kid-1');
-      authMiddleware = createAuthMiddleware(testKeys.publicKey);
+      authMiddleware = createAuthMiddleware({ [testKeys.kid]: testKeys.publicKey });
     });
 
     function mockHttp() {
@@ -567,6 +915,200 @@ describe('Stage 4.1A: Authentication Foundations', () => {
 
       expect(isNextCalled()).toBe(false);
       expect(getStatus()).toBe(401);
+    });
+  });
+
+  // =========================================================================
+  // SECTION 5: Express Middleware Live HTTP Integration Test (Requirement 5)
+  // =========================================================================
+  describe('Express Middleware Live HTTP Integration Test', () => {
+    let testKeys;
+    let expressServer;
+    let baseUrl;
+
+    beforeAll(async () => {
+      testKeys = generateTestRsaKeyPair('express-mw-test-kid-1');
+      const app = express();
+      app.use(express.json());
+      app.use(express.urlencoded({ extended: true }));
+
+      const authMiddleware = createAuthMiddleware({ [testKeys.kid]: testKeys.publicKey });
+
+      // Mount protected test routes (does not add production auth routes)
+      app.get('/api/v2/test/protected', authMiddleware, (req, res) => {
+        res.status(200).json({ success: true, user: req.user });
+      });
+
+      app.post('/api/v2/test/protected', authMiddleware, (req, res) => {
+        res.status(200).json({ success: true, user: req.user, bodyEcho: req.body, queryEcho: req.query });
+      });
+
+      // Start on ephemeral port
+      await new Promise((resolve) => {
+        expressServer = app.listen(0, '127.0.0.1', () => {
+          const port = expressServer.address().port;
+          baseUrl = `http://127.0.0.1:${port}`;
+          resolve();
+        });
+      });
+    });
+
+    afterAll(async () => {
+      if (expressServer) {
+        await new Promise((resolve) => expressServer.close(resolve));
+      }
+    });
+
+    it('INTEGRATION: valid token reaches protected endpoint over HTTP with 200 OK', async () => {
+      const token = signAccessToken(
+        { sub: 'usr_express_1', email: 'merchant@domain.ng', defaultBusinessId: 'biz_exp_9' },
+        testKeys.privateKey,
+        { kid: testKeys.kid }
+      );
+
+      const res = await fetch(`${baseUrl}/api/v2/test/protected`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.success).toBe(true);
+      expect(data.user.id).toBe('usr_express_1');
+      expect(data.user.email).toBe('merchant@domain.ng');
+      expect(data.user.defaultBusinessId).toBe('biz_exp_9');
+      expect(data.user.tokenUse).toBe('access');
+      expect(data.user.tokenType).toBe('merchant_access');
+    });
+
+    it('INTEGRATION: missing token returns HTTP 401 UNAUTHORIZED', async () => {
+      const res = await fetch(`${baseUrl}/api/v2/test/protected`);
+      expect(res.status).toBe(401);
+      const data = await res.json();
+      expect(data.error).toBe('UNAUTHORIZED');
+    });
+
+    it('INTEGRATION: expired token returns HTTP 401 TOKEN_EXPIRED', async () => {
+      const expiredToken = signAccessToken(
+        { sub: 'usr_exp_http', email: 'exp@test.com' },
+        testKeys.privateKey,
+        { kid: testKeys.kid, expiresInSeconds: -10 }
+      );
+
+      const res = await fetch(`${baseUrl}/api/v2/test/protected`, {
+        headers: {
+          'Authorization': `Bearer ${expiredToken}`
+        }
+      });
+
+      expect(res.status).toBe(401);
+      const data = await res.json();
+      expect(data.error).toBe('TOKEN_EXPIRED');
+    });
+
+    it('INTEGRATION: invalid signature returns HTTP 401 INVALID_TOKEN', async () => {
+      const token = signAccessToken(
+        { sub: 'usr_valid_sig', email: 'valid@test.com' },
+        testKeys.privateKey,
+        { kid: testKeys.kid }
+      );
+
+      const parts = token.split('.');
+      const tampered = `${parts[0]}.${parts[1]}.${parts[2].slice(0, -6)}ZZZZZZ`;
+
+      const res = await fetch(`${baseUrl}/api/v2/test/protected`, {
+        headers: {
+          'Authorization': `Bearer ${tampered}`
+        }
+      });
+
+      expect(res.status).toBe(401);
+      const data = await res.json();
+      expect(data.error).toBe('INVALID_TOKEN');
+    });
+
+    it('INTEGRATION: wrong token type returns HTTP 401 INVALID_TOKEN_TYPE', async () => {
+      const jwt = (await import('jsonwebtoken')).default;
+      const wrongTypeToken = jwt.sign(
+        {
+          sub: 'usr_wrong_type',
+          email: 'wrong@test.com',
+          defaultBusinessId: null,
+          iss: JWT_CONFIG.ISSUER,
+          aud: JWT_CONFIG.AUDIENCE,
+          token_use: JWT_CONFIG.TOKEN_USE,
+          token_type: 'platform_admin_access', // NOT merchant_access
+          jti: crypto.randomUUID(),
+          iat: Math.floor(Date.now() / 1000),
+          exp: Math.floor(Date.now() / 1000) + 900
+        },
+        testKeys.privateKey,
+        {
+          algorithm: 'RS256',
+          keyid: testKeys.kid
+        }
+      );
+
+      const res = await fetch(`${baseUrl}/api/v2/test/protected`, {
+        headers: {
+          'Authorization': `Bearer ${wrongTypeToken}`
+        }
+      });
+
+      expect(res.status).toBe(401);
+      const data = await res.json();
+      expect(data.error).toBe('INVALID_TOKEN_TYPE');
+    });
+
+    it('INTEGRATION: unknown key ID returns HTTP 401 UNKNOWN_KEY_ID', async () => {
+      const tokenWithUnknownKid = signAccessToken(
+        { sub: 'usr_unknown_kid', email: 'unknown@test.com' },
+        testKeys.privateKey,
+        { kid: 'unregistered-key-id-999' }
+      );
+
+      const res = await fetch(`${baseUrl}/api/v2/test/protected`, {
+        headers: {
+          'Authorization': `Bearer ${tokenWithUnknownKid}`
+        }
+      });
+
+      expect(res.status).toBe(401);
+      const data = await res.json();
+      expect(data.error).toBe('UNKNOWN_KEY_ID');
+    });
+
+    it('INTEGRATION: request-body and query-string identity manipulation cannot alter authenticated identity', async () => {
+      const token = signAccessToken(
+        { sub: 'real_merchant_user', email: 'real@merchant.ng', defaultBusinessId: 'biz_real_1' },
+        testKeys.privateKey,
+        { kid: testKeys.kid }
+      );
+
+      // Attacker attempts to spoof user ID, role, and business ID in both query string and JSON body
+      const res = await fetch(`${baseUrl}/api/v2/test/protected?userId=spoofed_query_user&defaultBusinessId=spoofed_query_biz`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          id: 'spoofed_admin_id',
+          userId: 'spoofed_body_user',
+          role: 'super_admin',
+          defaultBusinessId: 'spoofed_body_biz'
+        })
+      });
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+
+      // Protected endpoint received req.user strictly reflecting verified token claims
+      expect(data.user.id).toBe('real_merchant_user');
+      expect(data.user.email).toBe('real@merchant.ng');
+      expect(data.user.defaultBusinessId).toBe('biz_real_1');
+      expect(data.user.role).toBeUndefined(); // Role is never populated or trusted from body/query
     });
   });
 });

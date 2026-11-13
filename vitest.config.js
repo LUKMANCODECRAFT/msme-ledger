@@ -8,7 +8,8 @@ export default defineConfig({
     alias: {
       mongoose: path.resolve(__dirname, 'server/node_modules/mongoose'),
       argon2: path.resolve(__dirname, 'server/node_modules/argon2'),
-      jsonwebtoken: path.resolve(__dirname, 'server/node_modules/jsonwebtoken')
+      jsonwebtoken: path.resolve(__dirname, 'server/node_modules/jsonwebtoken'),
+      express: path.resolve(__dirname, 'server/node_modules/express')
     }
   },
   test: {
