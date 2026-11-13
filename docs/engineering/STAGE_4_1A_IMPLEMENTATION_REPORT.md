@@ -47,7 +47,7 @@ This implementation establishes the core cryptographic, identity, token, and mid
     2. **Detect and resolve duplicate normalized emails:** Query the collection for case-variant collisions (e.g. `user@test.com` and `User@Test.com`) that would cause an unrecoverable `E11000` duplicate key failure upon index build, and resolve them before index modification.
     3. **Create a backup and define recovery procedure:** Take a full snapshot/backup of the `users` collection and verify roll-forward and rollback plans.
     4. **Obtain explicit migration authorization:** Require project owner sign-off and scheduled maintenance window before modifying live indexes.
-    5. **Perform a controlled index replacement:** In a transaction or controlled script, drop the legacy uncollated index and immediately construct the target index with `{ unique: true, collation: { locale: 'en', strength: 2 } }`.
+    5. **Perform a controlled index replacement:** In a scheduled maintenance window with application write traffic temporarily paused, execute a controlled administrative migration script to drop the legacy uncollated index (`db.collection('users').dropIndex('email_1')`) and immediately construct the target index with `{ unique: true, collation: { locale: 'en', strength: 2 } }`.
     6. **Verify the resulting unique collation index:** Confirm the new index is active, reported in `db.collection('users').getIndexes()`, and verifies case collision rejection.
   - **Integration Status:** Collation configuration is verified against Mongoose schema metadata and application-level unit collision simulation. Live database-level index enforcement against MongoDB requires an active, isolated mongod instance and is explicitly documented as **not yet integration-tested** in local environments without Docker/MongoDB daemon. Production or cloud MongoDB access remains strictly prohibited.
 
@@ -121,6 +121,6 @@ For production and staging deployments, the following configuration applies:
 ## 5. Test & Build Verification
 
 - **Regression Suite:** All 62 original baseline tests passed without modification.
-- **Stage 4.1A Suite:** 58 unit, security, and live Express integration tests passed.
-- **Total Test Results:** 120 passed (9 suites, 120 tests) in 6.10s.
-- **Production Build:** Vite production build completed cleanly in 1.17s.
+- **Stage 4.1A Suite:** 61 unit, security, and live Express integration tests passed.
+- **Total Test Results:** 123 passed (9 suites, 123 tests) in 6.10s.
+- **Production Build:** Vite production build completed cleanly in 1.34s.

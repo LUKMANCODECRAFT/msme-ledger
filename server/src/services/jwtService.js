@@ -384,10 +384,14 @@ export async function verifyAccessToken(token, publicKeyResolver, options = {}) 
     throw err;
   }
 
-  // 6.10: Blueprint 900-second access-token lifetime enforcement
-  const maxLifetime = typeof options.maxLifetimeSeconds === 'number'
-    ? options.maxLifetimeSeconds
+  // 6.10: Blueprint 900-second absolute access-token lifetime ceiling
+  // An optional lower maximum may be configured, but can never exceed the absolute 900-second blueprint ceiling.
+  // Invalid, negative, zero, or non-numeric configuration values safely fall back to the 900-second ceiling.
+  const configuredMax = typeof options.maxLifetimeSeconds === 'number' && Number.isFinite(options.maxLifetimeSeconds) && options.maxLifetimeSeconds > 0
+    ? Math.floor(options.maxLifetimeSeconds)
     : JWT_CONFIG.MAX_ACCESS_TOKEN_TTL_SECONDS;
+
+  const maxLifetime = Math.min(configuredMax, JWT_CONFIG.MAX_ACCESS_TOKEN_TTL_SECONDS);
 
   const tokenLifetime = payload.exp - payload.iat;
   if (tokenLifetime > maxLifetime) {

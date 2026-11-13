@@ -586,26 +586,139 @@ describe('Stage 4.1A: Authentication Foundations', () => {
       ).rejects.toThrow('TOKEN_ISSUED_IN_FUTURE');
     });
 
-    it('CLAIMS: enforces Blueprint 900-second access-token lifetime', async () => {
+    it('CLAIMS: enforces default Blueprint 900-second access-token lifetime ceiling', async () => {
       const now = Math.floor(Date.now() / 1000);
       const jwt = (await import('jsonwebtoken')).default;
-      const payload = {
-        sub: 'usr_1',
-        email: 'test@example.com',
-        defaultBusinessId: null,
-        iss: JWT_CONFIG.ISSUER,
-        aud: JWT_CONFIG.AUDIENCE,
-        token_use: JWT_CONFIG.TOKEN_USE,
-        token_type: JWT_CONFIG.TOKEN_TYPE,
-        jti: crypto.randomUUID(),
-        iat: now,
-        exp: now + 901 // 901 seconds exceeds 900s limit
-      };
+      const makeToken = (lifetime) => jwt.sign(
+        {
+          sub: 'usr_1',
+          email: 'test@example.com',
+          defaultBusinessId: null,
+          iss: JWT_CONFIG.ISSUER,
+          aud: JWT_CONFIG.AUDIENCE,
+          token_use: JWT_CONFIG.TOKEN_USE,
+          token_type: JWT_CONFIG.TOKEN_TYPE,
+          jti: crypto.randomUUID(),
+          iat: now,
+          exp: now + lifetime
+        },
+        testKeys.privateKey,
+        { algorithm: 'RS256', keyid: testKeys.kid }
+      );
 
-      const token = jwt.sign(payload, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
+      const keyMap = { [testKeys.kid]: testKeys.publicKey };
+
+      // Lifetime of exactly 900 seconds passes by default
+      const token900 = makeToken(900);
+      const verified900 = await verifyAccessToken(token900, keyMap);
+      expect(verified900.sub).toBe('usr_1');
+
+      // Lifetime of 901 seconds is rejected by default
+      const token901 = makeToken(901);
+      await expect(verifyAccessToken(token901, keyMap)).rejects.toThrow('TOKEN_LIFETIME_EXCEEDED');
+    });
+
+    it('CLAIMS: allows a lower configured maximum lifetime (e.g. 300 seconds)', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const jwt = (await import('jsonwebtoken')).default;
+      const makeToken = (lifetime) => jwt.sign(
+        {
+          sub: 'usr_1',
+          email: 'test@example.com',
+          defaultBusinessId: null,
+          iss: JWT_CONFIG.ISSUER,
+          aud: JWT_CONFIG.AUDIENCE,
+          token_use: JWT_CONFIG.TOKEN_USE,
+          token_type: JWT_CONFIG.TOKEN_TYPE,
+          jti: crypto.randomUUID(),
+          iat: now,
+          exp: now + lifetime
+        },
+        testKeys.privateKey,
+        { algorithm: 'RS256', keyid: testKeys.kid }
+      );
+
+      const keyMap = { [testKeys.kid]: testKeys.publicKey };
+
+      // Token with 300s lifetime passes under maxLifetimeSeconds: 300
+      const token300 = makeToken(300);
+      const verified300 = await verifyAccessToken(token300, keyMap, { maxLifetimeSeconds: 300 });
+      expect(verified300.sub).toBe('usr_1');
+
+      // Token with 301s lifetime is rejected under maxLifetimeSeconds: 300
+      const token301 = makeToken(301);
       await expect(
-        verifyAccessToken(token, { [testKeys.kid]: testKeys.publicKey }, { maxLifetimeSeconds: 900 })
+        verifyAccessToken(token301, keyMap, { maxLifetimeSeconds: 300 })
       ).rejects.toThrow('TOKEN_LIFETIME_EXCEEDED');
+    });
+
+    it('CLAIMS: enforces absolute 900-second ceiling even if a higher maximum is configured (e.g. 1800s)', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const jwt = (await import('jsonwebtoken')).default;
+      const makeToken = (lifetime) => jwt.sign(
+        {
+          sub: 'usr_1',
+          email: 'test@example.com',
+          defaultBusinessId: null,
+          iss: JWT_CONFIG.ISSUER,
+          aud: JWT_CONFIG.AUDIENCE,
+          token_use: JWT_CONFIG.TOKEN_USE,
+          token_type: JWT_CONFIG.TOKEN_TYPE,
+          jti: crypto.randomUUID(),
+          iat: now,
+          exp: now + lifetime
+        },
+        testKeys.privateKey,
+        { algorithm: 'RS256', keyid: testKeys.kid }
+      );
+
+      const keyMap = { [testKeys.kid]: testKeys.publicKey };
+
+      // Caller attempts to configure 1800 seconds (30 mins), but token has 901s lifetime
+      const token901 = makeToken(901);
+      await expect(
+        verifyAccessToken(token901, keyMap, { maxLifetimeSeconds: 1800 })
+      ).rejects.toThrow('TOKEN_LIFETIME_EXCEEDED');
+
+      // Caller attempts to configure 3600 seconds, token has 1200s lifetime
+      const token1200 = makeToken(1200);
+      await expect(
+        verifyAccessToken(token1200, keyMap, { maxLifetimeSeconds: 3600 })
+      ).rejects.toThrow('TOKEN_LIFETIME_EXCEEDED');
+    });
+
+    it('CLAIMS: safely falls back to 900-second ceiling when invalid maxLifetimeSeconds values are passed', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const jwt = (await import('jsonwebtoken')).default;
+      const token901 = jwt.sign(
+        {
+          sub: 'usr_1',
+          email: 'test@example.com',
+          defaultBusinessId: null,
+          iss: JWT_CONFIG.ISSUER,
+          aud: JWT_CONFIG.AUDIENCE,
+          token_use: JWT_CONFIG.TOKEN_USE,
+          token_type: JWT_CONFIG.TOKEN_TYPE,
+          jti: crypto.randomUUID(),
+          iat: now,
+          exp: now + 901
+        },
+        testKeys.privateKey,
+        { algorithm: 'RS256', keyid: testKeys.kid }
+      );
+
+      const keyMap = { [testKeys.kid]: testKeys.publicKey };
+
+      // Negative value
+      await expect(verifyAccessToken(token901, keyMap, { maxLifetimeSeconds: -50 })).rejects.toThrow('TOKEN_LIFETIME_EXCEEDED');
+      // Zero
+      await expect(verifyAccessToken(token901, keyMap, { maxLifetimeSeconds: 0 })).rejects.toThrow('TOKEN_LIFETIME_EXCEEDED');
+      // NaN
+      await expect(verifyAccessToken(token901, keyMap, { maxLifetimeSeconds: NaN })).rejects.toThrow('TOKEN_LIFETIME_EXCEEDED');
+      // Non-number string
+      await expect(verifyAccessToken(token901, keyMap, { maxLifetimeSeconds: 'invalid' })).rejects.toThrow('TOKEN_LIFETIME_EXCEEDED');
+      // Null
+      await expect(verifyAccessToken(token901, keyMap, { maxLifetimeSeconds: null })).rejects.toThrow('TOKEN_LIFETIME_EXCEEDED');
     });
 
     // -----------------------------------------------------------------------
