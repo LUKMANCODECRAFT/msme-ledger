@@ -4,13 +4,14 @@
 
 Stage 4.1B of the SB Manager rebuild establishes the refresh-token lifecycle, atomic rotation, authenticated replay caching, session termination endpoints, and multi-layer CSRF defenses on branch `feature/phase-4-1a-auth-foundations`.
 
-Following an independent security audit, all identified code-level defects have been remediated:
-1. **Transactionally Atomic Rotation:** Token rotation is fully transaction-aware with majority read/write concerns, guaranteeing that either R1 transitions from `active` to `consumed` AND R2 is created, or the entire operation rolls back.
+Following independent architecture and code audits, all identified defects have been remediated:
+1. **Transactionally Atomic Rotation with Supported Retry Semantics:** Token rotation operates inside a MongoDB session transaction with majority read/write concerns. It handles `TransientTransactionError` by retrying the transaction body, and `UnknownTransactionCommitResult` by retrying the commit operation within bounded policies (max 3 retries), guaranteeing that either R1 transitions from `active` to `consumed` AND R2 is inserted into the same family, or the entire operation rolls back.
 2. **Production Shared Redis Replay Cache:** Replaced process-local storage with `RedisReplayCacheService` (backed by `ioredis`), supporting cluster-shared cache persistence across process restarts, 30s max TTL, AES-256-GCM encryption with 32-byte stable key, and fail-closed integrity checks.
 3. **Fail-Closed Production Signing Configuration:** Removed ephemeral test key fallback from the service constructor. Production environments strictly require valid `JWT_PRIVATE_KEY` and `JWT_KEY_ID`, verified via cryptographic structure checks before accepting requests.
 4. **Pre-Commit Cache Write Hook & Outage Resilience:** Session rotation writes to the shared replay cache *before* database transaction commitment; if the cache write fails, the database transaction rolls back, leaving R1 active and preventing delivery-loss deadlock.
 5. **Logout Revocation Reliability:** Database revocation errors during logout are propagated rather than swallowed; the server responds with HTTP 500 while clearing browser cookies. Idempotent success (HTTP 200) is reserved for verified revocations, already-revoked families, or missing sessions.
-6. **Production CSRF Origin Hardening:** Production environments strictly require explicit `ALLOWED_ORIGINS` / `CORS_ALLOWED_ORIGINS` / `CLIENT_URL` configuration and never silently fall back to `localhost`.
+6. **Legacy API Route Retirement:** Retired `/api/v1/sync` and `/api/v1/admin/stats` with permanent HTTP 410 Gone responses, removing legacy controller execution and sensitive metrics.
+7. **Production Application Bootstrap:** Explicitly validates JWT signing keys and live Redis connectivity (via `ping()`) in `initializeProductionServices()`, injecting a real `RefreshTokenService` into `createAuthSessionRouter()` and rejecting startup if configuration is missing.
 
 ---
 
@@ -57,19 +58,27 @@ Following an independent security audit, all identified code-level defects have 
     - Rejects missing, empty, or non-string inputs with structured `INVALID_REFRESH_TOKEN` (401).
 - **Session Duration:** 30 days (`2,592,000` seconds / `30 * 24 * 60 * 60 * 1000` ms).
 
-### 2.3 Transactionally Atomic Rotation Specification
+### 2.3 Transactionally Atomic Rotation & Supported Retry Semantics
 - **Method:** `rotateTokenAtomic(...)` on `MongooseRefreshTokenStore` and `InMemoryRefreshTokenStore`
-- **Transaction Invariant:**
-  - Starts MongoDB transaction with `readConcern: { level: 'majority' }` and `writeConcern: { w: 'majority' }`.
-  - Re-verifies token family status inside transaction.
-  - Conditionally updates $R_1$ from `status: 'active'` to `'consumed'`.
-  - Inserts $R_2$ successor document with identical `familyId`.
-  - Executes pre-commit hook (replay cache write). If pre-commit fails, aborts transaction completely.
-  - Commits transaction.
-  - **Result:** $R_1$ is consumed and $R_2$ is active, or $R_1$ remains active and no $R_2$ is created.
-- **Topology Awareness:** Standalone MongoDB instances without replica-set capabilities reject transactions with `MONGODB_TOPOLOGY_UNSUPPORTED` (HTTP 500), preventing false claims of atomicity on unverified topologies.
+- **Supported Retry Semantics:**
+  - `TransientTransactionError`: Retries the transaction body up to 3 times with fresh sessions.
+  - `UnknownTransactionCommitResult`: Retries `commitTransaction()` on the same session up to 3 times before declaring an ambiguous failure.
+  - Bounded retry policy ensures transient network blips do not abort valid rotations, while non-transient errors (duplicate key, validation failure, cache write failure) fail closed immediately without retry.
+- **Topology Awareness:** Standalone MongoDB instances without replica-set capabilities reject transactions with `MONGODB_TOPOLOGY_UNSUPPORTED` (HTTP 500).
 
-### 2.4 Production Shared Redis Replay Cache Adapter
+### 2.4 Replay Cache & Transaction Coordination Ordering Invariant
+- **Ordering Contract:**
+  1. $R_1$ conditional status update to `'consumed'` inside transaction.
+  2. $R_2$ active successor insertion inside transaction.
+  3. Pre-commit hook: encrypted replay-cache write (`replay:H(R1)` in Redis).
+  4. MongoDB transaction commit.
+  5. HTTP response delivery (`Set-Cookie: R2`, JSON: `accessToken`).
+- **Proof of Invariant Under Failure:**
+  - If step 3 (cache write) fails, the transaction is aborted. $R_1$ remains `active` in MongoDB, and $R_2$ is discarded.
+  - If step 4 (commit) aborts, $R_1$ remains `active` in MongoDB, and the uncommitted Redis entry is deleted.
+  - If a client later presents $R_1$, the server queries MongoDB *first*. Because $R_1$ is `active`, the server enters normal rotation (Case A) and **never** queries the replay cache. It is mathematically impossible for a request to receive an uncommitted successor from the replay cache when the transaction aborted.
+
+### 2.5 Production Shared Redis Replay Cache Adapter
 - **Module:** `server/src/services/replayCacheService.js`
 - **Classes:** `RedisReplayCacheService` (production), `InMemoryReplayCacheService` (isolated tests only)
 - **Specification:**
@@ -79,9 +88,10 @@ Following an independent security audit, all identified code-level defects have 
   - **Key Resolution:** Stable 32-byte key from `process.env.REPLAY_CACHE_SECRET`. In production, missing or short secrets throw `ConfigurationError`.
   - **TTL Enforcement:** Absolute maximum ceiling of 30 seconds (`EX Math.min(ttlSeconds, 30)`).
   - **Integrity Validation:** Fails closed on IV tampering, ciphertext bit-flips, authentication tag mismatches, key mismatches, or token family mismatches with `ReplayCacheIntegrityError`.
+  - **Readiness Verification:** `ping()` method verifies live connectivity during startup.
   - **Outage Fallback:** Redis network timeouts or connection drops fail safely without crashing, returning `null` so the caller invokes approved grace/re-auth logic.
 
-### 2.5 Two-Tier Concurrency, Recovery & Replay Detection Contract
+### 2.6 Two-Tier Concurrency, Recovery & Replay Detection Contract
 Conforms strictly to Section 4.3 of the Phase 4 Architecture Plan:
 1. **Tier 1 ($\Delta t \le 10\text{s}$ — Concurrent Browser Tab Window):**
    - Active cache hit returns the successor payload idempotently (`isReplay: true`).
@@ -96,7 +106,7 @@ Conforms strictly to Section 4.3 of the Phase 4 Architecture Plan:
    - Evicts replay cache entry and returns `401 Unauthorized` (`TOKEN_FAMILY_COMPROMISED`).
    - Any subsequent refresh attempt for any token in the family is rejected with `401 TOKEN_FAMILY_ALREADY_REVOKED`.
 
-### 2.6 Fail-Closed Production Signing Configuration
+### 2.7 Fail-Closed Production Signing Configuration
 - **Module:** `server/src/services/jwtService.js` and `server/src/services/refreshTokenService.js`
 - **Validation:** `validatePrivateKey(privateKeyPem, expectedKid)`:
   - Verifies PEM structure and validates `keyObject.asymmetricKeyType === 'rsa'`.
@@ -106,7 +116,7 @@ Conforms strictly to Section 4.3 of the Phase 4 Architecture Plan:
   - In production (`process.env.NODE_ENV === 'production'`), missing signing keys throw `ConfigurationError('MISSING_JWT_PRIVATE_KEY')`.
   - Ephemeral test key generation is strictly prohibited in production and available only via `createTestRefreshTokenService()` in test suites.
 
-### 2.7 Logout Reliability Contract
+### 2.8 Logout Reliability Contract
 - **Module:** `server/src/controllers/authSessionController.js` and `server/src/services/refreshTokenService.js`
 - **Specification:**
   - Browser cookie `sb_refresh_token` is cleared on every logout request.
@@ -115,58 +125,58 @@ Conforms strictly to Section 4.3 of the Phase 4 Architecture Plan:
   - If the token does not exist or the family is already revoked, returns `200 OK` idempotently.
   - The server never accepts arbitrary user-supplied family IDs to revoke third-party sessions.
 
-### 2.8 Multi-Layer CSRF Defense & Cookie Security
-- **Module:** `server/src/middleware/csrfProtection.js`
-- **Origin Validation:** In production, missing origin configuration defaults to empty allowlist (`[]`), rejecting all state-changing requests. Never silently permits `localhost` in production.
-- **Custom Header:** Mandates `X-Requested-With`, `X-SB-Client`, or `X-CSRF-Token`.
-- **Fetch Metadata:** Blocks `Sec-Fetch-Site: cross-site` with `403 CSRF_CROSS_SITE`.
-- **Cookie Security:** `sb_refresh_token` cookie configured with `HttpOnly: true`, `Secure: true` in production, `SameSite: 'strict'`, `Path: '/api/v2/auth'`, `MaxAge: 30 days`.
-- **Body Privacy:** Refresh endpoint returns `{ success: true, data: { accessToken, tokenType: 'Bearer', expiresIn: 900 } }`. The refresh token is strictly set in the HttpOnly cookie and is **never** exposed in JSON response bodies.
+### 2.9 Legacy API Route Retirement (HTTP 410 Gone)
+- **Module:** `server/src/server.js` (`legacyRetiredRouteHandler`)
+- **Endpoints Retired:**
+  - `POST /api/v1/sync` → `410 Gone`
+  - `GET /api/v1/admin/stats` → `410 Gone`
+- **Contract:** All HTTP methods mapped to `legacyRetiredRouteHandler`, returning `{ success: false, error: 'ENDPOINT_RETIRED_GONE', message: '...', deprecatedAt: 'Phase 4' }`. Neither `processSync` nor `getSystemStats` controller is invoked.
+
+### 2.10 Production Application Bootstrap
+- **Module:** `server/src/server.js` (`initializeProductionServices`, `createApp`, `startServer`)
+- **Validation Sequence:**
+  1. Validates `JWT_PRIVATE_KEY` and `JWT_KEY_ID`.
+  2. Validates `REDIS_URL` and `REPLAY_CACHE_SECRET`.
+  3. Instantiates `RedisReplayCacheService` and executes `await replayCache.ping()`. Fails startup if Redis is unreachable.
+  4. Instantiates `RefreshTokenService` with real `MongooseRefreshTokenStore` and injected cache.
+  5. Injects `tokenService` into `createAuthSessionRouter({ tokenService })` and mounts on `/api/v2/auth`.
+  6. Graceful shutdown handler closes HTTP listener, Redis client, and MongoDB connection.
 
 ---
 
 ## 3. Verification Evidence by Category
 
 ### A. Vitest Suite Results
-- **Total Test Files:** 11 passed (11)
-- **Total Tests:** 185 passed (185)
+- **Total Test Files:** 12 passed (12)
+- **Total Tests:** 203 passed (203)
 - **Test File Breakdown:**
-  1. `src/test/auth_refresh_remediation.test.js`: 25 passed (targeted security remediation suite)
-  2. `src/test/auth_refresh_lifecycle.test.js`: 37 passed (Stage 4.1B lifecycle and concurrency suite)
-  3. `src/test/auth_foundations.test.js`: 61 passed (Stage 4.1A Argon2id & RS256 token suite)
-  4. `src/test/mongoose_target_schemas.test.js`: 8 passed (target schema index verification)
-  5. `src/test/migration_architecture.test.js`: 10 passed
-  6. `src/test/debt_reconciliation.test.js`: 10 passed
-  7. `src/test/inventory_domain.test.js`: 17 passed
-  8. `src/test/dexie_databases.test.js`: 7 passed
-  9. `src/test/onboarding.test.jsx`: 4 passed
-  10. `src/test/stock_movement_safeguard.test.js`: 5 passed
-  11. `src/test/smoke.test.js`: 1 passed
+  1. `src/test/stage_4_1b_final_remediation.test.js`: 18 passed (production bootstrap, route retirement, transaction retry)
+  2. `src/test/auth_refresh_remediation.test.js`: 25 passed (atomic rotation, Redis clustering, signing fail-closed, logout reliability)
+  3. `src/test/auth_refresh_lifecycle.test.js`: 37 passed (Stage 4.1B lifecycle and concurrency suite)
+  4. `src/test/auth_foundations.test.js`: 61 passed (Stage 4.1A Argon2id & RS256 token suite)
+  5. `src/test/mongoose_target_schemas.test.js`: 8 passed (target schema index verification)
+  6. `src/test/migration_architecture.test.js`: 10 passed
+  7. `src/test/debt_reconciliation.test.js`: 10 passed
+  8. `src/test/inventory_domain.test.js`: 17 passed
+  9. `src/test/dexie_databases.test.js`: 7 passed
+  10. `src/test/onboarding.test.jsx`: 4 passed
+  11. `src/test/stock_movement_safeguard.test.js`: 5 passed
+  12. `src/test/smoke.test.js`: 1 passed
 
 ### B. Verification Category Matrix
 
 | Verification Category | Execution Status | Evidence / Notes |
 |---|---|---|
-| **Unit Tests** | **PASSED** | 185 passing tests covering Argon2id, RS256, AES-256-GCM, CSRF, cookies, and tokens. |
-| **Mocked Infrastructure Tests** | **PASSED** | Multi-instance Redis mock and transactional store adapter verify cluster sharing, rollback, and race conditions. |
+| **Unit Tests** | **PASSED** | 203 passing tests covering Argon2id, RS256 claims, AES-256-GCM authenticated encryption, CSRF headers, cookies, and tokens. |
+| **Mocked Infrastructure Tests** | **PASSED** | Multi-instance Redis mock and transactional store adapter verify cluster sharing, transaction retry, rollback, and race conditions. |
 | **Real MongoDB Replica-Set Integration** | **UNVERIFIED LOCALLY** | Standalone local daemon does not support multi-document transactions. Tested via deterministic adapter with topology check; real replica-set tests require staging environment. |
-| **Real Redis Integration** | **UNVERIFIED LOCALLY** | Tested via Redis mock adapter and ioredis interface; real Redis server was not provisioned in the local test runner. |
-| **Vite Production Build** | **PASSED** | Production client bundle built in 1.12s with zero warnings or errors. |
+| **Real Redis Integration** | **UNVERIFIED LOCALLY** | Tested via Redis mock adapter and ioredis interface; real Redis server was not provisioned in local test runner. |
+| **Vite Production Build** | **PASSED** | `vite build` completed cleanly in 1.17s with zero warnings or errors. |
 
 ---
 
 ## 4. Remaining Infrastructure Limitations
 
-1. **MongoDB Replica Set Prerequisite:**
-   - MongoDB multi-document transactions require a replica set or sharded cluster topology with majority write concern.
-   - On standalone development/test MongoDB servers, the system detects missing replica set topology and rejects transactions with `MONGODB_TOPOLOGY_UNSUPPORTED`.
-   - Deployment to production requires replica-set provisioning.
-
-2. **Redis Cluster Prerequisite:**
-   - The shared replay cache requires an active Redis instance or cluster configured via `REDIS_URL` and `REPLAY_CACHE_SECRET`.
-   - Local offline testing utilizes the mock/in-memory adapters; live staging validation against a real Redis instance remains a pre-production deployment requirement.
-
-3. **Exclusion Scope Maintained:**
-   - SBM-041 (Multi-tenant authorization, roles, and business membership) remains strictly unstarted.
-   - SBM-042 (Subscriptions and manual bank transfer entitlements) remains strictly unstarted.
-   - Stage 4.1C (Registration and login endpoints) remains deferred until authorization.
+1. **MongoDB Replica Set Prerequisite:** Multi-document transactions require an active MongoDB replica set or sharded cluster topology with majority write concern. Standalone mongod instances fail closed with `MONGODB_TOPOLOGY_UNSUPPORTED`.
+2. **Redis Cluster Prerequisite:** The shared replay cache requires an active Redis cluster or standalone instance with `REDIS_URL` and a stable 32-byte `REPLAY_CACHE_SECRET` configured in production.
+3. **Strict Scope Preservation:** Multi-tenant RBAC (SBM-041), subscription/entitlement services (SBM-042), and registration/login endpoints (Stage 4.1C) remain strictly unstarted.

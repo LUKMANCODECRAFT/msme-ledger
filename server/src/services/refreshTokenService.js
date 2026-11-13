@@ -136,74 +136,106 @@ export class MongooseRefreshTokenStore {
     preCommitHook
   }) {
     const db = this.model.db;
-    let session = null;
+    const maxTxnRetries = 3;
+    const maxCommitRetries = 3;
 
-    try {
-      session = await db.startSession();
-      session.startTransaction({
-        readConcern: { level: 'majority' },
-        writeConcern: { w: 'majority' }
-      });
-    } catch (err) {
-      if (err.message?.includes('replica set') || err.code === 20) {
-        throw new RefreshTokenError(
-          'MONGODB_TOPOLOGY_UNSUPPORTED',
-          500,
-          'MongoDB transactions require a replica set or sharded cluster topology. Standalone MongoDB deployments cannot guarantee atomic multi-document token rotation.'
+    for (let txnAttempt = 1; txnAttempt <= maxTxnRetries; txnAttempt++) {
+      let session = null;
+      try {
+        session = await db.startSession();
+        session.startTransaction({
+          readConcern: { level: 'majority' },
+          writeConcern: { w: 'majority' }
+        });
+      } catch (err) {
+        if (err.message?.includes('replica set') || err.code === 20) {
+          throw new RefreshTokenError(
+            'MONGODB_TOPOLOGY_UNSUPPORTED',
+            500,
+            'MongoDB transactions require a replica set or sharded cluster topology. Standalone MongoDB deployments cannot guarantee atomic multi-document token rotation.'
+          );
+        }
+        throw err;
+      }
+
+      let createdSuccessor = null;
+      let consumedDoc = null;
+
+      try {
+        // 1. Invariant check inside transaction: verify family is not revoked
+        const isRevoked = await this.model.findOne({ familyId, status: 'revoked' }).session(session);
+        if (isRevoked) {
+          await session.abortTransaction();
+          throw new RefreshTokenError('TOKEN_FAMILY_ALREADY_REVOKED', 401, 'Token family has been revoked.');
+        }
+
+        // 2. Conditionally update current token from 'active' to 'consumed'
+        consumedDoc = await this.model.findOneAndUpdate(
+          { id: currentTokenId, status: 'active' },
+          {
+            $set: {
+              status: 'consumed',
+              consumedAt: now,
+              replacedByHash: nextTokenHash,
+              replacedByTokenHash: nextTokenHash
+            }
+          },
+          { new: true, session }
         );
-      }
-      throw err;
-    }
 
-    try {
-      // 1. Invariant check inside transaction: verify family is not revoked
-      const isRevoked = await this.model.findOne({ familyId, status: 'revoked' }).session(session);
-      if (isRevoked) {
-        await session.abortTransaction();
-        throw new RefreshTokenError('TOKEN_FAMILY_ALREADY_REVOKED', 401, 'Token family has been revoked.');
-      }
+        if (!consumedDoc) {
+          // Race condition: another concurrent request consumed this active token
+          await session.abortTransaction();
+          return { concurrentRace: true };
+        }
 
-      // 2. Conditionally update current token from 'active' to 'consumed'
-      const consumedDoc = await this.model.findOneAndUpdate(
-        { id: currentTokenId, status: 'active' },
-        {
-          $set: {
-            status: 'consumed',
-            consumedAt: now,
-            replacedByHash: nextTokenHash,
-            replacedByTokenHash: nextTokenHash
+        // 3. Insert successor active token document
+        const [inserted] = await this.model.create([successorDoc], { session });
+        createdSuccessor = inserted;
+
+        // 4. Pre-commit hook (e.g. authenticated replay-cache persistence)
+        if (typeof preCommitHook === 'function') {
+          await preCommitHook({ session, successorDoc: createdSuccessor, consumedDoc });
+        }
+
+        // 5. Commit transaction atomically with UnknownTransactionCommitResult retry
+        let commitAttempt = 0;
+        while (true) {
+          try {
+            await session.commitTransaction();
+            break; // Commit confirmed!
+          } catch (commitErr) {
+            commitAttempt++;
+            const isUnknownCommitResult = commitErr.hasErrorLabel?.('UnknownTransactionCommitResult') ||
+                                         commitErr.errorLabels?.includes('UnknownTransactionCommitResult');
+            if (isUnknownCommitResult && commitAttempt < maxCommitRetries) {
+              continue; // Retry commit operation
+            }
+            throw commitErr;
           }
-        },
-        { new: true, session }
-      );
+        }
 
-      if (!consumedDoc) {
-        // Race condition: another concurrent request consumed this active token
-        await session.abortTransaction();
-        return { concurrentRace: true };
+        return {
+          success: true,
+          consumedDoc,
+          successorDoc: createdSuccessor
+        };
+      } catch (err) {
+        await session.abortTransaction().catch(() => {});
+
+        // Check if TransientTransactionError and retry attempt remains
+        const isTransient = err.hasErrorLabel?.('TransientTransactionError') ||
+                            err.errorLabels?.includes('TransientTransactionError');
+
+        if (isTransient && txnAttempt < maxTxnRetries) {
+          await session.endSession().catch(() => {});
+          continue; // Retry whole transaction
+        }
+
+        throw err;
+      } finally {
+        await session.endSession().catch(() => {});
       }
-
-      // 3. Insert successor active token document
-      const [createdSuccessor] = await this.model.create([successorDoc], { session });
-
-      // 4. Pre-commit hook (e.g. authenticated replay-cache persistence)
-      if (typeof preCommitHook === 'function') {
-        await preCommitHook({ session, successorDoc: createdSuccessor, consumedDoc });
-      }
-
-      // 5. Commit transaction atomically
-      await session.commitTransaction();
-
-      return {
-        success: true,
-        consumedDoc,
-        successorDoc: createdSuccessor
-      };
-    } catch (err) {
-      await session.abortTransaction();
-      throw err;
-    } finally {
-      await session.endSession();
     }
   }
 }
@@ -218,6 +250,8 @@ export class InMemoryRefreshTokenStore {
     this.simulateTopologyUnsupported = false;
     this.failAfterR1Update = false;
     this.failOnRevocation = false;
+    this.simulateTransientErrorCount = 0;
+    this.simulateUnknownCommitResultCount = 0;
   }
 
   addUser(user) {
@@ -312,67 +346,107 @@ export class InMemoryRefreshTokenStore {
       );
     }
 
-    if (await this.isFamilyRevoked(familyId)) {
-      throw new RefreshTokenError('TOKEN_FAMILY_ALREADY_REVOKED', 401, 'Token family has been revoked.');
-    }
+    const maxTxnRetries = 3;
+    const maxCommitRetries = 3;
 
-    const current = this.tokens.get(currentTokenId);
-    if (!current || current.status !== 'active') {
-      return { concurrentRace: true };
-    }
-
-    // Check duplicate successor tokenHash conflict
-    for (const tok of this.tokens.values()) {
-      if (tok.tokenHash === nextTokenHash) {
-        const dupErr = new Error(`E11000 duplicate key error: tokenHash_${nextTokenHash}`);
-        dupErr.code = 11000;
-        throw dupErr;
+    for (let txnAttempt = 1; txnAttempt <= maxTxnRetries; txnAttempt++) {
+      if (await this.isFamilyRevoked(familyId)) {
+        throw new RefreshTokenError('TOKEN_FAMILY_ALREADY_REVOKED', 401, 'Token family has been revoked.');
       }
-    }
 
-    // Snapshot state for transaction rollback simulation
-    const snapshotCurrent = { ...current };
+      const current = this.tokens.get(currentTokenId);
+      if (!current || current.status !== 'active') {
+        return { concurrentRace: true };
+      }
 
-    // 1. Stage update R1 -> consumed
-    current.status = 'consumed';
-    current.consumedAt = now;
-    current.replacedByHash = nextTokenHash;
-    current.replacedByTokenHash = nextTokenHash;
-    current.updatedAt = now;
-    this.tokens.set(currentTokenId, current);
+      // Check duplicate successor tokenHash conflict
+      for (const tok of this.tokens.values()) {
+        if (tok.tokenHash === nextTokenHash) {
+          const dupErr = new Error(`E11000 duplicate key error: tokenHash_${nextTokenHash}`);
+          dupErr.code = 11000;
+          throw dupErr;
+        }
+      }
 
-    // 2. Simulate failure after R1 update but before R2 insertion
-    if (this.failAfterR1Update) {
-      // Rollback transaction!
-      this.tokens.set(currentTokenId, snapshotCurrent);
-      throw new Error('SIMULATED_TRANSACTION_FAILURE_BEFORE_R2');
-    }
+      // Snapshot state for transaction rollback simulation
+      const snapshotCurrent = { ...current };
 
-    // 3. Stage insert R2
-    const createdSuccessor = {
-      ...successorDoc,
-      createdAt: now,
-      updatedAt: now
-    };
-    this.tokens.set(createdSuccessor.id, createdSuccessor);
+      // 1. Stage update R1 -> consumed
+      current.status = 'consumed';
+      current.consumedAt = now;
+      current.replacedByHash = nextTokenHash;
+      current.replacedByTokenHash = nextTokenHash;
+      current.updatedAt = now;
+      this.tokens.set(currentTokenId, current);
 
-    // 4. Pre-commit hook (e.g. replay cache write)
-    if (typeof preCommitHook === 'function') {
-      try {
-        await preCommitHook({ successorDoc: createdSuccessor, consumedDoc: current });
-      } catch (hookErr) {
-        // Rollback transaction completely!
+      // 2. Simulate failure after R1 update but before R2 insertion
+      if (this.failAfterR1Update) {
         this.tokens.set(currentTokenId, snapshotCurrent);
-        this.tokens.delete(createdSuccessor.id);
-        throw hookErr;
+        throw new Error('SIMULATED_TRANSACTION_FAILURE_BEFORE_R2');
       }
-    }
 
-    return {
-      success: true,
-      consumedDoc: { ...current },
-      successorDoc: { ...createdSuccessor }
-    };
+      // 2b. Simulated TransientTransactionError
+      if (this.simulateTransientErrorCount && this.simulateTransientErrorCount > 0) {
+        this.simulateTransientErrorCount--;
+        this.tokens.set(currentTokenId, snapshotCurrent);
+        const transientErr = new Error('WriteConflict: transient transaction conflict.');
+        transientErr.errorLabels = ['TransientTransactionError'];
+        transientErr.hasErrorLabel = (label) => label === 'TransientTransactionError';
+
+        if (txnAttempt < maxTxnRetries) {
+          continue; // Retry transaction
+        }
+        throw transientErr;
+      }
+
+      // 3. Stage insert R2
+      const createdSuccessor = {
+        ...successorDoc,
+        createdAt: now,
+        updatedAt: now
+      };
+      this.tokens.set(createdSuccessor.id, createdSuccessor);
+
+      // 4. Pre-commit hook (e.g. replay cache write)
+      if (typeof preCommitHook === 'function') {
+        try {
+          await preCommitHook({ successorDoc: createdSuccessor, consumedDoc: current });
+        } catch (hookErr) {
+          // Rollback transaction completely!
+          this.tokens.set(currentTokenId, snapshotCurrent);
+          this.tokens.delete(createdSuccessor.id);
+          throw hookErr;
+        }
+      }
+
+      // 5. Commit phase with UnknownTransactionCommitResult simulation
+      if (this.simulateUnknownCommitResultCount && this.simulateUnknownCommitResultCount > 0) {
+        let commitConfirmed = false;
+        for (let commitAttempt = 1; commitAttempt <= maxCommitRetries; commitAttempt++) {
+          if (this.simulateUnknownCommitResultCount > 0) {
+            this.simulateUnknownCommitResultCount--;
+            if (commitAttempt < maxCommitRetries) {
+              continue; // Retry commit!
+            } else {
+              // Retry limit exceeded! Commit outcome is uncertain.
+              const commitErr = new Error('UnknownTransactionCommitResult: network dropped during commit.');
+              commitErr.errorLabels = ['UnknownTransactionCommitResult'];
+              commitErr.hasErrorLabel = (label) => label === 'UnknownTransactionCommitResult';
+              throw commitErr;
+            }
+          } else {
+            commitConfirmed = true;
+            break;
+          }
+        }
+      }
+
+      return {
+        success: true,
+        consumedDoc: { ...current },
+        successorDoc: { ...createdSuccessor }
+      };
+    }
   }
 
   clear() {

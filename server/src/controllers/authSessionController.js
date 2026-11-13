@@ -16,6 +16,7 @@
  */
 
 import { defaultRefreshTokenService, RefreshTokenError } from '../services/refreshTokenService.js';
+import { ConfigurationError } from '../services/replayCacheService.js';
 
 export const REFRESH_COOKIE_NAME = 'sb_refresh_token';
 
@@ -68,7 +69,19 @@ export function extractRefreshTokenFromRequest(req) {
  * 
  * @param {import('../services/refreshTokenService.js').RefreshTokenService} [tokenService]
  */
-export function createAuthSessionController(tokenService = defaultRefreshTokenService) {
+export function createAuthSessionController(tokenService) {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const resolvedService = tokenService || defaultRefreshTokenService;
+
+  if (!resolvedService) {
+    if (isProduction) {
+      throw new ConfigurationError(
+        'MISSING_TOKEN_SERVICE',
+        'createAuthSessionController requires an explicitly injected tokenService in production.'
+      );
+    }
+  }
+
   return {
     /**
      * POST /api/v2/auth/refresh
@@ -190,6 +203,21 @@ export function createAuthSessionController(tokenService = defaultRefreshTokenSe
   };
 }
 
-const defaultController = createAuthSessionController();
-export const refreshSession = defaultController.refresh;
-export const logoutSession = defaultController.logout;
+let defaultController = null;
+if (process.env.NODE_ENV !== 'production' && defaultRefreshTokenService) {
+  defaultController = createAuthSessionController(defaultRefreshTokenService);
+}
+
+export const refreshSession = (req, res) => {
+  if (!defaultController) {
+    throw new ConfigurationError('MISSING_TOKEN_SERVICE', 'createAuthSessionController requires an explicitly injected tokenService in production.');
+  }
+  return defaultController.refresh(req, res);
+};
+
+export const logoutSession = (req, res) => {
+  if (!defaultController) {
+    throw new ConfigurationError('MISSING_TOKEN_SERVICE', 'createAuthSessionController requires an explicitly injected tokenService in production.');
+  }
+  return defaultController.logout(req, res);
+};

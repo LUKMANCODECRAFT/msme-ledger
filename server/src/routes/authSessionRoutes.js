@@ -10,9 +10,11 @@
 import { Router } from 'express';
 import { createCsrfProtectionMiddleware } from '../middleware/csrfProtection.js';
 import { createAuthSessionController, refreshSession, logoutSession } from '../controllers/authSessionController.js';
+import { ConfigurationError } from '../services/replayCacheService.js';
 
 /**
  * Creates an Express router configured with auth session routes and CSRF middleware.
+ * In production, strictly requires an explicitly injected tokenService.
  * 
  * @param {Object} [options]
  * @param {import('../services/refreshTokenService.js').RefreshTokenService} [options.tokenService]
@@ -20,9 +22,20 @@ import { createAuthSessionController, refreshSession, logoutSession } from '../c
  * @returns {Router}
  */
 export function createAuthSessionRouter(options = {}) {
+  const isProduction = process.env.NODE_ENV === 'production';
   const router = Router();
   const csrf = options.csrfMiddleware || createCsrfProtectionMiddleware();
-  const controller = options.tokenService ? createAuthSessionController(options.tokenService) : { refresh: refreshSession, logout: logoutSession };
+
+  if (!options.tokenService && isProduction) {
+    throw new ConfigurationError(
+      'MISSING_TOKEN_SERVICE',
+      'createAuthSessionRouter requires an explicitly injected tokenService in production.'
+    );
+  }
+
+  const controller = options.tokenService
+    ? createAuthSessionController(options.tokenService)
+    : { refresh: refreshSession, logout: logoutSession };
 
   router.post('/refresh', csrf, controller.refresh);
   router.post('/logout', csrf, controller.logout);
@@ -30,5 +43,5 @@ export function createAuthSessionRouter(options = {}) {
   return router;
 }
 
-const defaultAuthSessionRouter = createAuthSessionRouter();
+const defaultAuthSessionRouter = process.env.NODE_ENV === 'production' ? null : createAuthSessionRouter();
 export default defaultAuthSessionRouter;

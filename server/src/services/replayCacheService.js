@@ -191,8 +191,10 @@ export class RedisReplayCacheService {
       this.client = new Redis(url || 'redis://127.0.0.1:6379', {
         maxRetriesPerRequest: 1,
         enableOfflineQueue: false,
-        lazyConnect: true
+        lazyConnect: true,
+        retryStrategy: () => null
       });
+      this.client.on('error', () => {});
       this.ownsClient = true;
     }
   }
@@ -312,14 +314,35 @@ export class RedisReplayCacheService {
   }
 
   /**
+   * Pings Redis to verify connectivity during startup and health/readiness checks.
+   * 
+   * @returns {Promise<boolean>}
+   */
+  async ping() {
+    if (this.simulatedOutage) {
+      throw new ReplayCacheOutageError('Simulated Redis outage during ping.');
+    }
+    try {
+      const res = await this.client.ping();
+      return res === 'PONG' || res === true;
+    } catch (err) {
+      throw new ReplayCacheOutageError(`Redis ping failed: ${err.message}`);
+    }
+  }
+
+  /**
    * Closes connection.
    */
   async close() {
-    if (this.ownsClient && this.client) {
+    if (this.client) {
       try {
-        await this.client.quit();
+        if (typeof this.client.quit === 'function') {
+          await this.client.quit();
+        } else if (typeof this.client.disconnect === 'function') {
+          this.client.disconnect();
+        }
       } catch {
-        this.client.disconnect();
+        this.client.disconnect?.();
       }
     }
   }
@@ -418,6 +441,17 @@ export class InMemoryReplayCacheService {
 
   clear() {
     this.store.clear();
+  }
+
+  async ping() {
+    if (this.simulatedOutage) {
+      throw new ReplayCacheOutageError('Simulated in-memory outage during ping.');
+    }
+    return true;
+  }
+
+  async close() {
+    this.clear();
   }
 
   setSimulateOutage(outage) {
