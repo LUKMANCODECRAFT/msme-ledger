@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { msme_ledger_db } from '../config/db.js';
 
 export default function Onboarding({ onComplete }) {
   const [shopName, setShopName] = useState('');
@@ -11,17 +10,10 @@ export default function Onboarding({ onComplete }) {
 
     setIsSubmitting(true);
     try {
-      // 1. Data Purge: explicitly clear all Dexie.js tables
-      await Promise.all([
-        msme_ledger_db.customers.clear(),
-        msme_ledger_db.inventory.clear(),
-        msme_ledger_db.sales.clear()
-      ]);
-
-      // 2. Save shop name offline
+      // 1. Save shop name offline safely without clearing existing business records
       localStorage.setItem('shopName', shopName.trim());
 
-      // 3. Mark onboarding as complete
+      // 2. Mark onboarding as complete
       onComplete();
     } catch (error) {
       console.error(error);
