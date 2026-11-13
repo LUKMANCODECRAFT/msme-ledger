@@ -42,31 +42,38 @@ This implementation establishes the core cryptographic, identity, token, and mid
   - **Guarantee:** Enforces case-insensitive email uniqueness directly at the database engine level across all write paths, preventing race conditions and collision vulnerabilities.
   - **Field Preservation:** Preserves all existing fields (`id`, `passwordHash`, `fullName`, `isEmailVerified`, `createdAt`, `updatedAt`) and adds `defaultBusinessId: { type: String, default: null }`.
 - **Database Migration Requirement & Testing Status:**
-  - **Existing Databases:** In existing MongoDB databases where `{ email: 1 }` was created without collation, MongoDB prohibits in-place collation alterations and throws `IndexOptionsConflict`. Migration scripts must explicitly drop `email_1` before creating the collated index.
+  - **Existing Databases:** In existing MongoDB databases where `{ email: 1 }` was previously created without collation, MongoDB prohibits in-place collation alterations and will reject building the collated index with `IndexOptionsConflict`. Unconditional or automated execution of `dropIndex('email_1')` is strictly prohibited. Instead, any migration of an existing database requires a controlled, multi-stage procedure:
+    1. **Inspect existing index definitions:** Verify whether `{ email: 1 }` exists and inspect its exact collation options.
+    2. **Detect and resolve duplicate normalized emails:** Query the collection for case-variant collisions (e.g. `user@test.com` and `User@Test.com`) that would cause an unrecoverable `E11000` duplicate key failure upon index build, and resolve them before index modification.
+    3. **Create a backup and define recovery procedure:** Take a full snapshot/backup of the `users` collection and verify roll-forward and rollback plans.
+    4. **Obtain explicit migration authorization:** Require project owner sign-off and scheduled maintenance window before modifying live indexes.
+    5. **Perform a controlled index replacement:** In a transaction or controlled script, drop the legacy uncollated index and immediately construct the target index with `{ unique: true, collation: { locale: 'en', strength: 2 } }`.
+    6. **Verify the resulting unique collation index:** Confirm the new index is active, reported in `db.collection('users').getIndexes()`, and verifies case collision rejection.
   - **Integration Status:** Collation configuration is verified against Mongoose schema metadata and application-level unit collision simulation. Live database-level index enforcement against MongoDB requires an active, isolated mongod instance and is explicitly documented as **not yet integration-tested** in local environments without Docker/MongoDB daemon. Production or cloud MongoDB access remains strictly prohibited.
 
 ### 2.3 RS256 Access Token Infrastructure & Key-ID Enforcement
 - **Module:** `server/src/services/jwtService.js`
 - **Specification:**
   - Algorithm: **RS256** exclusively.
-  - Mandatory Header: `{ alg: 'RS256', typ: 'JWT', kid: string }`. Tokens missing `kid` are strictly rejected.
+  - Mandatory Header: `{ alg: 'RS256', typ: 'JWT', kid: string }`.
+  - Header Type Enforcement: `header.typ === 'JWT'` strictly required; missing, empty, or incorrect `typ` values are rejected with `INVALID_TOKEN_HEADER_TYPE` before public-key resolution and signature verification.
   - Key-ID Enforcement:
     - A token's `kid` must identify the exact public key used for verification.
     - Static public-key configurations require an explicitly configured `expectedKid` (via `options.expectedKid` or `process.env.JWT_KEY_ID`).
     - Unknown or mismatched `kid` values are strictly rejected.
     - An arbitrary `kid` is never accepted merely because a supplied public key verifies the signature.
-    - Signing requires explicit `kid` configuration via `options.kid` or `process.env.JWT_KEY_ID`.
+    - Signing requires explicit `kid` configuration via `options.kid` or `process.env.JWT_KEY_ID`; `DEFAULT_KID` has been removed to prevent silent hardcoded fallback.
   - Mandatory Claims & Strict Validation:
     - `iss`: `'sb-manager-auth'` (exact match against configured issuer)
     - `aud`: `'sb-manager-client'` (exact match against configured audience)
-    - `sub`: Non-empty user ID string
-    - `iat`: Integer Unix seconds (rejected if future-issued beyond 5-second clock skew tolerance)
-    - `exp`: Integer Unix seconds (strictly > `iat`; lifetime cannot exceed 900 seconds)
-    - `jti`: Non-empty unique identifier string (UUIDv4)
-    - `token_use`: `'access'` strictly
-    - `token_type`: `'merchant_access'` strictly
-    - `email`: Valid, normalized lowercase email string
-    - `defaultBusinessId`: Non-empty string or `null` strictly
+    - `sub`: Non-empty user ID string (`INVALID_TOKEN_SUBJECT`)
+    - `iat`: Integer Unix seconds (rejected if future-issued beyond 5-second clock skew tolerance with `TOKEN_ISSUED_IN_FUTURE`)
+    - `exp`: Integer Unix seconds (strictly > `iat`; lifetime cannot exceed 900 seconds with `TOKEN_LIFETIME_EXCEEDED`)
+    - `jti`: RFC 4122 UUIDv4 string strictly enforced via regex; rejects missing, empty, non-UUID, non-v4, and invalid variant bits with `INVALID_TOKEN_JTI`
+    - `token_use`: `'access'` strictly (`INVALID_TOKEN_USE`)
+    - `token_type`: `'merchant_access'` strictly (`INVALID_TOKEN_TYPE`)
+    - `email`: Valid, normalized lowercase email string (`INVALID_TOKEN_EMAIL`)
+    - `defaultBusinessId`: Non-empty string or `null` strictly (`INVALID_TOKEN_BUSINESS_ID`)
 - **Security Defenses:**
   - Defence-in-depth against algorithm switching attacks: explicitly checks `header.alg === 'RS256'` before signature verification, and restricts `algorithms: ['RS256']` during verification.
   - Rejects symmetric HMAC tokens (`HS256`), unsigned tokens (`none`), expired tokens, tampered signatures, wrong issuer, wrong audience, wrong token_use, and wrong token_type.
@@ -106,7 +113,7 @@ For production and staging deployments, the following configuration applies:
 |---|---|---|---|
 | `JWT_PRIVATE_KEY` | Secret (PEM) | RSA private key (server-side only) | `-----BEGIN PRIVATE KEY-----\nMIIEvgIB...-----END PRIVATE KEY-----` |
 | `JWT_PUBLIC_KEY` | Public (PEM) | RSA public key for token verification | `-----BEGIN PUBLIC KEY-----\nMIIBIjAN...-----END PUBLIC KEY-----` |
-| `JWT_KEY_ID` | String | Key identifier matching JWKS header | `sb-auth-2026-v1` |
+| `JWT_KEY_ID` | String | Key identifier matching JWKS header (required for signing) | `sb-auth-2026-v1` |
 | `JWT_ACCESS_TOKEN_TTL_SECONDS` | Integer | Access token lifetime in seconds | `900` (15 minutes) |
 
 ---
@@ -114,6 +121,6 @@ For production and staging deployments, the following configuration applies:
 ## 5. Test & Build Verification
 
 - **Regression Suite:** All 62 original baseline tests passed without modification.
-- **Stage 4.1A Suite:** 54 unit, security, and live Express integration tests passed.
-- **Total Test Results:** 116 passed (9 suites, 116 tests) in 5.72s.
-- **Production Build:** Vite production build completed cleanly in 1.20s.
+- **Stage 4.1A Suite:** 58 unit, security, and live Express integration tests passed.
+- **Total Test Results:** 120 passed (9 suites, 120 tests) in 6.10s.
+- **Production Build:** Vite production build completed cleanly in 1.17s.

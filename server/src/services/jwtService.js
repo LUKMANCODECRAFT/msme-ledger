@@ -38,10 +38,11 @@ export const JWT_CONFIG = Object.freeze({
   AUDIENCE: 'sb-manager-client',
   MAX_ACCESS_TOKEN_TTL_SECONDS: 900, // 15 minutes
   DEFAULT_CLOCK_TOLERANCE_SECONDS: 5,
-  DEFAULT_KID: 'sb-auth-2026-v1',
   TOKEN_USE: 'access',
   TOKEN_TYPE: 'merchant_access'
 });
+
+const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
  * Generates an ephemeral RSA 2048-bit key pair for testing or isolated environments.
@@ -253,6 +254,13 @@ export async function verifyAccessToken(token, publicKeyResolver, options = {}) 
     throw err;
   }
 
+  // Step 2.1: Strict header typ enforcement - require header.typ === 'JWT'
+  if (header.typ !== 'JWT') {
+    const err = new Error(`INVALID_TOKEN_HEADER_TYPE: Header typ must be strictly 'JWT', received '${header.typ}'.`);
+    err.code = 'INVALID_TOKEN_HEADER_TYPE';
+    throw err;
+  }
+
   // Step 3: Mandatory Key ID (kid) enforcement
   if (!header.kid || typeof header.kid !== 'string' || !header.kid.trim()) {
     const err = new Error('MISSING_KID: Token header must contain a valid non-empty kid.');
@@ -325,9 +333,9 @@ export async function verifyAccessToken(token, publicKeyResolver, options = {}) 
     throw err;
   }
 
-  // 6.4: Unique Token ID (jti)
-  if (!payload.jti || typeof payload.jti !== 'string' || !payload.jti.trim()) {
-    const err = new Error('INVALID_TOKEN_JTI: Token jti must be a non-empty unique identifier string.');
+  // 6.4: Unique Token ID (jti) - must be a valid RFC 4122 UUIDv4 string
+  if (!payload.jti || typeof payload.jti !== 'string' || !UUID_V4_REGEX.test(payload.jti.trim())) {
+    const err = new Error('INVALID_TOKEN_JTI: Token jti must be a valid RFC 4122 UUIDv4 identifier string.');
     err.code = 'INVALID_TOKEN_JTI';
     throw err;
   }

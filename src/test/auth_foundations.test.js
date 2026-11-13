@@ -388,7 +388,7 @@ describe('Stage 4.1A: Authentication Foundations', () => {
       await expect(verifyAccessToken(tokenEmptySub, { [testKeys.kid]: testKeys.publicKey })).rejects.toThrow('INVALID_TOKEN_SUBJECT');
     });
 
-    it('CLAIMS: rejects token missing jti claim or having empty jti', async () => {
+    it('CLAIMS: enforces valid RFC 4122 UUIDv4 for jti, rejecting missing, empty, malformed, and non-v4 values', async () => {
       const jwt = (await import('jsonwebtoken')).default;
       const basePayload = {
         sub: 'usr_1',
@@ -402,13 +402,49 @@ describe('Stage 4.1A: Authentication Foundations', () => {
         exp: Math.floor(Date.now() / 1000) + 900
       };
 
+      const keyMap = { [testKeys.kid]: testKeys.publicKey };
+
+      // Valid UUIDv4 passes
+      const validV4 = 'c9bf9e57-1685-4c89-bafb-ff5af830be8a';
+      const tokenValidV4 = jwt.sign({ ...basePayload, jti: validV4 }, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
+      const verified = await verifyAccessToken(tokenValidV4, keyMap);
+      expect(verified.jti).toBe(validV4);
+
       // Missing jti
       const tokenNoJti = jwt.sign(basePayload, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
-      await expect(verifyAccessToken(tokenNoJti, { [testKeys.kid]: testKeys.publicKey })).rejects.toThrow('INVALID_TOKEN_JTI');
+      await expect(verifyAccessToken(tokenNoJti, keyMap)).rejects.toThrow('INVALID_TOKEN_JTI');
 
       // Empty jti
       const tokenEmptyJti = jwt.sign({ ...basePayload, jti: '' }, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
-      await expect(verifyAccessToken(tokenEmptyJti, { [testKeys.kid]: testKeys.publicKey })).rejects.toThrow('INVALID_TOKEN_JTI');
+      await expect(verifyAccessToken(tokenEmptyJti, keyMap)).rejects.toThrow('INVALID_TOKEN_JTI');
+
+      // Arbitrary non-UUID string
+      const tokenArbitrary = jwt.sign({ ...basePayload, jti: 'not-a-valid-uuid-identifier' }, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
+      await expect(verifyAccessToken(tokenArbitrary, keyMap)).rejects.toThrow('INVALID_TOKEN_JTI');
+
+      // Non-UUID numeric string
+      const tokenNumeric = jwt.sign({ ...basePayload, jti: '1234567890' }, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
+      await expect(verifyAccessToken(tokenNumeric, keyMap)).rejects.toThrow('INVALID_TOKEN_JTI');
+
+      // UUID with invalid version (Version 1 instead of 4: 13th character is '1')
+      const uuidV1 = 'c9bf9e57-1685-1c89-bafb-ff5af830be8a';
+      const tokenV1 = jwt.sign({ ...basePayload, jti: uuidV1 }, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
+      await expect(verifyAccessToken(tokenV1, keyMap)).rejects.toThrow('INVALID_TOKEN_JTI');
+
+      // UUID with invalid version (Version 5 instead of 4: 13th character is '5')
+      const uuidV5 = 'c9bf9e57-1685-5c89-bafb-ff5af830be8a';
+      const tokenV5 = jwt.sign({ ...basePayload, jti: uuidV5 }, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
+      await expect(verifyAccessToken(tokenV5, keyMap)).rejects.toThrow('INVALID_TOKEN_JTI');
+
+      // UUID with invalid variant bits (17th character is '0', must be 8, 9, a, or b)
+      const uuidInvalidVariant = 'c9bf9e57-1685-4c89-0afb-ff5af830be8a';
+      const tokenInvalidVariant = jwt.sign({ ...basePayload, jti: uuidInvalidVariant }, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
+      await expect(verifyAccessToken(tokenInvalidVariant, keyMap)).rejects.toThrow('INVALID_TOKEN_JTI');
+
+      // UUID with invalid variant bits (17th character is 'c')
+      const uuidInvalidVariantC = 'c9bf9e57-1685-4c89-cafb-ff5af830be8a';
+      const tokenInvalidVariantC = jwt.sign({ ...basePayload, jti: uuidInvalidVariantC }, testKeys.privateKey, { algorithm: 'RS256', keyid: testKeys.kid });
+      await expect(verifyAccessToken(tokenInvalidVariantC, keyMap)).rejects.toThrow('INVALID_TOKEN_JTI');
     });
 
     it('CLAIMS: rejects token with invalid or unnormalized email', async () => {
@@ -612,6 +648,103 @@ describe('Stage 4.1A: Authentication Foundations', () => {
       await expect(
         verifyAccessToken(noneToken, { [testKeys.kid]: testKeys.publicKey })
       ).rejects.toThrow('INVALID_ALGORITHM');
+    });
+
+    it('HEADER: verifies token with valid typ: "JWT"', async () => {
+      const token = signAccessToken(
+        { sub: 'usr_typ_ok', email: 'typ@example.com' },
+        testKeys.privateKey,
+        { kid: testKeys.kid }
+      );
+      const verified = await verifyAccessToken(token, { [testKeys.kid]: testKeys.publicKey });
+      expect(verified.sub).toBe('usr_typ_ok');
+    });
+
+    it('HEADER: strictly rejects tokens missing typ header before key resolution', async () => {
+      // Craft a token whose header explicitly omits typ (alg and kid only)
+      const headerB64 = Buffer.from(JSON.stringify({ alg: 'RS256', kid: testKeys.kid })).toString('base64url');
+      const payloadB64 = Buffer.from(JSON.stringify({
+        sub: 'usr_no_typ',
+        email: 'no_typ@example.com',
+        defaultBusinessId: null,
+        iss: JWT_CONFIG.ISSUER,
+        aud: JWT_CONFIG.AUDIENCE,
+        token_use: JWT_CONFIG.TOKEN_USE,
+        token_type: JWT_CONFIG.TOKEN_TYPE,
+        jti: crypto.randomUUID(),
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 900
+      })).toString('base64url');
+
+      const sigB64 = crypto.sign('RSA-SHA256', Buffer.from(`${headerB64}.${payloadB64}`), testKeys.privateKey).toString('base64url');
+      const tokenWithoutTyp = `${headerB64}.${payloadB64}.${sigB64}`;
+
+      // Rejection should occur even if resolver is empty or throws, because typ check executes before key resolution
+      await expect(
+        verifyAccessToken(tokenWithoutTyp, {})
+      ).rejects.toThrow('INVALID_TOKEN_HEADER_TYPE');
+    });
+
+    it('HEADER: strictly rejects tokens with empty typ header', async () => {
+      const jwt = (await import('jsonwebtoken')).default;
+      const tokenEmptyTyp = jwt.sign(
+        {
+          sub: 'usr_empty_typ',
+          email: 'empty_typ@example.com',
+          defaultBusinessId: null,
+          iss: JWT_CONFIG.ISSUER,
+          aud: JWT_CONFIG.AUDIENCE,
+          token_use: JWT_CONFIG.TOKEN_USE,
+          token_type: JWT_CONFIG.TOKEN_TYPE,
+          jti: crypto.randomUUID(),
+          iat: Math.floor(Date.now() / 1000),
+          exp: Math.floor(Date.now() / 1000) + 900
+        },
+        testKeys.privateKey,
+        {
+          algorithm: 'RS256',
+          header: { alg: 'RS256', typ: '', kid: testKeys.kid }
+        }
+      );
+
+      await expect(
+        verifyAccessToken(tokenEmptyTyp, { [testKeys.kid]: testKeys.publicKey })
+      ).rejects.toThrow('INVALID_TOKEN_HEADER_TYPE');
+    });
+
+    it('HEADER: strictly rejects tokens with incorrect typ header (e.g. JOSE or lowercase jwt)', async () => {
+      const jwt = (await import('jsonwebtoken')).default;
+      const makeBadTypToken = (typVal) => jwt.sign(
+        {
+          sub: 'usr_bad_typ',
+          email: 'bad_typ@example.com',
+          defaultBusinessId: null,
+          iss: JWT_CONFIG.ISSUER,
+          aud: JWT_CONFIG.AUDIENCE,
+          token_use: JWT_CONFIG.TOKEN_USE,
+          token_type: JWT_CONFIG.TOKEN_TYPE,
+          jti: crypto.randomUUID(),
+          iat: Math.floor(Date.now() / 1000),
+          exp: Math.floor(Date.now() / 1000) + 900
+        },
+        testKeys.privateKey,
+        {
+          algorithm: 'RS256',
+          header: { alg: 'RS256', typ: typVal, kid: testKeys.kid }
+        }
+      );
+
+      await expect(
+        verifyAccessToken(makeBadTypToken('JOSE'), { [testKeys.kid]: testKeys.publicKey })
+      ).rejects.toThrow('INVALID_TOKEN_HEADER_TYPE');
+
+      await expect(
+        verifyAccessToken(makeBadTypToken('jwt'), { [testKeys.kid]: testKeys.publicKey })
+      ).rejects.toThrow('INVALID_TOKEN_HEADER_TYPE');
+
+      await expect(
+        verifyAccessToken(makeBadTypToken('application/jwt'), { [testKeys.kid]: testKeys.publicKey })
+      ).rejects.toThrow('INVALID_TOKEN_HEADER_TYPE');
     });
 
     it('SECURITY: strictly rejects tokens without kid header', async () => {
