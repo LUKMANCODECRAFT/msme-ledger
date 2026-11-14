@@ -53,7 +53,18 @@ export function legacyRetiredRouteHandler(req, res) {
 export async function initializeProductionServices(options = {}) {
   const isProduction = process.env.NODE_ENV === 'production';
 
-  // 1. JWT Signing Configuration Validation
+  // 1. In production, validate MONGO_URI before creating external infrastructure if requested or provided
+  if (options.validateMongoUri || (isProduction && options.mongoUri !== undefined)) {
+    const mongoUri = options.mongoUri || process.env.MONGO_URI;
+    if (!mongoUri || !mongoUri.trim()) {
+      throw new ConfigurationError(
+        'MISSING_MONGO_URI',
+        'Production startup failed: MONGO_URI must be explicitly configured.'
+      );
+    }
+  }
+
+  // 2. JWT Signing Configuration Validation
   const signingKey = options.signingKey || process.env.JWT_PRIVATE_KEY;
   const kid = options.kid || process.env.JWT_KEY_ID;
 
@@ -73,96 +84,109 @@ export async function initializeProductionServices(options = {}) {
   }
 
   // 3. Replay Cache Resolution & Connectivity Verification
-  let replayCache;
-  if (isProduction) {
-    if (options.replayCache) {
-      // In production, reject InMemoryReplayCacheService or arbitrary adapters
-      if (!(options.replayCache instanceof RedisReplayCacheService)) {
-        throw new ConfigurationError(
-          'INVALID_PRODUCTION_REPLAY_CACHE',
-          'Production startup failed: An approved RedisReplayCacheService is required in production.'
-        );
-      }
-      replayCache = options.replayCache;
-    } else {
-      const redisUrl = options.redisUrl || process.env.REDIS_URL;
-      const redisSecret = options.replayCacheSecret || process.env.REPLAY_CACHE_SECRET;
+  let replayCache = null;
+  try {
+    if (isProduction) {
+      if (options.replayCache) {
+        // In production, reject InMemoryReplayCacheService or arbitrary adapters
+        if (!(options.replayCache instanceof RedisReplayCacheService)) {
+          throw new ConfigurationError(
+            'INVALID_PRODUCTION_REPLAY_CACHE',
+            'Production startup failed: An approved RedisReplayCacheService is required in production.'
+          );
+        }
+        replayCache = options.replayCache;
+      } else {
+        const redisUrl = options.redisUrl || process.env.REDIS_URL;
+        const redisSecret = options.replayCacheSecret || process.env.REPLAY_CACHE_SECRET;
 
-      if (!redisUrl) {
-        throw new ConfigurationError(
-          'MISSING_REDIS_URL',
-          'Production startup failed: REDIS_URL must be explicitly configured for shared replay cache.'
-        );
-      }
-      if (!redisSecret) {
-        throw new ConfigurationError(
-          'MISSING_REPLAY_CACHE_SECRET',
-          'Production startup failed: REPLAY_CACHE_SECRET must be explicitly configured.'
-        );
+        if (!redisUrl) {
+          throw new ConfigurationError(
+            'MISSING_REDIS_URL',
+            'Production startup failed: REDIS_URL must be explicitly configured for shared replay cache.'
+          );
+        }
+        if (!redisSecret) {
+          throw new ConfigurationError(
+            'MISSING_REPLAY_CACHE_SECRET',
+            'Production startup failed: REPLAY_CACHE_SECRET must be explicitly configured.'
+          );
+        }
+
+        replayCache = new RedisReplayCacheService({
+          redisUrl,
+          secret: redisSecret,
+          redisClient: options.redisClient
+        });
       }
 
-      replayCache = new RedisReplayCacheService({
-        redisUrl,
-        secret: redisSecret,
-        redisClient: options.redisClient
-      });
-    }
-
-    // In production, always perform live connectivity check (even if injected)
-    try {
-      await replayCache.ping();
-    } catch (redisErr) {
-      throw new ConfigurationError(
-        'REDIS_READINESS_FAILED',
-        `Production startup failed: Unable to establish live connectivity to Redis. Details: ${sanitizeErrorMessage(redisErr.message)}`
-      );
-    }
-  } else {
-    // Non-production fallback (development / tests)
-    if (options.replayCache) {
-      replayCache = options.replayCache;
-    } else if (options.redisClient || options.redisUrl || process.env.REDIS_URL) {
-      replayCache = new RedisReplayCacheService(options);
+      // In production, always perform live connectivity check (even if injected)
       try {
-        await replayCache.ping();
-      } catch (err) {
+        const pingResult = await replayCache.ping();
+        if (pingResult !== 'PONG' && pingResult !== true) {
+          throw new Error(`Invalid Redis readiness response: ${String(pingResult)}`);
+        }
+      } catch (redisErr) {
         throw new ConfigurationError(
           'REDIS_READINESS_FAILED',
-          `Redis connection failed: ${sanitizeErrorMessage(err.message)}`
+          `Production startup failed: Unable to establish live connectivity to Redis. Details: ${sanitizeErrorMessage(redisErr.message)}`
         );
       }
     } else {
-      replayCache = new InMemoryReplayCacheService(options);
-    }
-  }
-
-  // 4. RefreshTokenStore & Service Construction with Real Store and Injected Cache
-  let store;
-  if (isProduction) {
-    if (options.store) {
-      if (!(options.store instanceof MongooseRefreshTokenStore)) {
-        throw new ConfigurationError(
-          'INVALID_PRODUCTION_TOKEN_STORE',
-          'Production startup failed: An approved persistent MongooseRefreshTokenStore is required in production.'
-        );
+      // Non-production fallback (development / tests)
+      if (options.replayCache) {
+        replayCache = options.replayCache;
+      } else if (options.redisClient || options.redisUrl || process.env.REDIS_URL) {
+        replayCache = new RedisReplayCacheService(options);
+        try {
+          const pingResult = await replayCache.ping();
+          if (pingResult !== 'PONG' && pingResult !== true) {
+            throw new Error(`Unexpected Redis ping response: ${String(pingResult)}`);
+          }
+        } catch (err) {
+          throw new ConfigurationError(
+            'REDIS_READINESS_FAILED',
+            `Redis connection failed: ${sanitizeErrorMessage(err.message)}`
+          );
+        }
+      } else {
+        replayCache = new InMemoryReplayCacheService(options);
       }
-      store = options.store;
-    } else {
-      store = new MongooseRefreshTokenStore();
     }
-  } else {
-    store = options.store || new MongooseRefreshTokenStore();
+
+    // 4. RefreshTokenStore & Service Construction with Real Store and Injected Cache
+    let store;
+    if (isProduction) {
+      if (options.store) {
+        if (!(options.store instanceof MongooseRefreshTokenStore)) {
+          throw new ConfigurationError(
+            'INVALID_PRODUCTION_TOKEN_STORE',
+            'Production startup failed: An approved persistent MongooseRefreshTokenStore is required in production.'
+          );
+        }
+        store = options.store;
+      } else {
+        store = new MongooseRefreshTokenStore();
+      }
+    } else {
+      store = options.store || new MongooseRefreshTokenStore();
+    }
+
+    const tokenService = new RefreshTokenService({
+      store,
+      replayCache,
+      signingKey,
+      kid,
+      allowTestKeyFallback: !isProduction
+    });
+
+    return { tokenService, replayCache };
+  } catch (err) {
+    if (replayCache && typeof replayCache.close === 'function') {
+      await replayCache.close().catch(() => {});
+    }
+    throw err;
   }
-
-  const tokenService = new RefreshTokenService({
-    store,
-    replayCache,
-    signingKey,
-    kid,
-    allowTestKeyFallback: !isProduction
-  });
-
-  return { tokenService, replayCache };
 }
 
 /**
@@ -212,9 +236,8 @@ export function createApp(options = {}) {
  */
 export async function startServer(options = {}) {
   const isProduction = process.env.NODE_ENV === 'production';
-  const { tokenService, replayCache } = await initializeProductionServices(options);
-  const app = createApp({ ...options, tokenService });
 
+  // 1. Validate production MONGO_URI before constructing or connecting external infrastructure
   const mongoUri = options.mongoUri || process.env.MONGO_URI || (!isProduction ? 'mongodb://127.0.0.1:27017/msme_ledger' : null);
   if (isProduction && (!mongoUri || !mongoUri.trim())) {
     throw new ConfigurationError(
@@ -223,34 +246,57 @@ export async function startServer(options = {}) {
     );
   }
 
+  let tokenService = null;
+  let replayCache = null;
+  let server = null;
+
   try {
-    await mongoose.connect(mongoUri);
-  } catch (mongoErr) {
-    throw new ConfigurationError(
-      'MONGO_CONNECTION_FAILED',
-      `Production startup failed: Unable to connect to MongoDB. Details: ${sanitizeErrorMessage(mongoErr.message)}`
-    );
-  }
+    const initialized = await initializeProductionServices(options);
+    tokenService = initialized.tokenService;
+    replayCache = initialized.replayCache;
 
-  const port = options.port || PORT;
-  const server = await new Promise((resolve, reject) => {
-    const s = app.listen(port, () => resolve(s));
-    s.on('error', reject);
-  });
+    const app = createApp({ ...options, tokenService });
 
-  const shutdown = async () => {
+    try {
+      await mongoose.connect(mongoUri);
+    } catch (mongoErr) {
+      throw new ConfigurationError(
+        'MONGO_CONNECTION_FAILED',
+        `Production startup failed: Unable to connect to MongoDB. Details: ${sanitizeErrorMessage(mongoErr.message)}`
+      );
+    }
+
+    const port = options.port || PORT;
+    server = await new Promise((resolve, reject) => {
+      const s = app.listen(port, () => resolve(s));
+      s.on('error', reject);
+    });
+
+    const shutdown = async () => {
+      if (server) {
+        await new Promise(r => server.close(r));
+      }
+      if (replayCache && typeof replayCache.close === 'function') {
+        await replayCache.close();
+      }
+      if (mongoose.connection.readyState !== 0) {
+        await mongoose.disconnect();
+      }
+    };
+
+    return { app, server, tokenService, replayCache, shutdown };
+  } catch (startupErr) {
     if (server) {
-      await new Promise(r => server.close(r));
+      await new Promise(r => server.close(r)).catch(() => {});
     }
-    if (replayCache) {
-      await replayCache.close();
+    if (replayCache && typeof replayCache.close === 'function') {
+      await replayCache.close().catch(() => {});
     }
-    if (mongoose.connection.readyState !== 0) {
+    try {
       await mongoose.disconnect();
-    }
-  };
-
-  return { app, server, tokenService, replayCache, shutdown };
+    } catch {}
+    throw startupErr;
+  }
 }
 
 // Auto-start server in standalone execution mode

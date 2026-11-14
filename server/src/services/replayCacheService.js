@@ -257,9 +257,11 @@ export class RedisReplayCacheService {
     }
 
     const encrypted = encryptPayload(enrichedPayload, this.key);
+    const successorHash = enrichedPayload.nextTokenHash || enrichedPayload.tokenHash || payload.nextTokenHash || payload.tokenHash || null;
     const envelope = JSON.stringify({
       ...encrypted,
-      familyId: enrichedPayload.familyId || null
+      familyId: enrichedPayload.familyId || null,
+      successorHash
     });
 
     const redisKey = `replay:${tokenHash}`;
@@ -338,8 +340,9 @@ export class RedisReplayCacheService {
   }
 
   /**
-   * Safely deletes a cached response ONLY if the stored payload's successor matches expectedSuccessorHash.
-   * Prevents a failed transaction rollback from wiping out a concurrent successful rotation.
+   * Atomically deletes a cached response ONLY if the stored payload's successor matches expectedSuccessorHash.
+   * Executes an atomic Lua script in Redis to compare the envelope's successorHash and delete in one step.
+   * Prevents read-then-delete race conditions and ensures a failed request never deletes a sibling rotation's entry.
    * 
    * @param {string} tokenHash - Consumed token hash (cache key)
    * @param {string} expectedSuccessorHash - The staged successor hash to compare
@@ -347,22 +350,140 @@ export class RedisReplayCacheService {
    */
   async deleteCachedResponseIfMatches(tokenHash, expectedSuccessorHash) {
     if (!tokenHash || !expectedSuccessorHash || this.simulatedOutage) return false;
+    const redisKey = `replay:${tokenHash}`;
+
+    const luaScript = `
+      local raw = redis.call('get', KEYS[1])
+      if not raw then
+        return 0
+      end
+      local ok, envelope = pcall(cjson.decode, raw)
+      if ok and envelope and envelope.successorHash == ARGV[1] then
+        return redis.call('del', KEYS[1])
+      else
+        return 0
+      end
+    `;
+
     try {
-      const cached = await this.getCachedResponse(tokenHash);
-      if (cached && (cached.tokenHash === expectedSuccessorHash || cached.nextTokenHash === expectedSuccessorHash || cached.successorTokenHash === expectedSuccessorHash)) {
-        await this.deleteCachedResponse(tokenHash);
-        return true;
+      if (typeof this.client.eval === 'function') {
+        const res = await this.client.eval(luaScript, 1, redisKey, expectedSuccessorHash);
+        return res === 1 || res === true;
+      } else {
+        const cached = await this.getCachedResponse(tokenHash);
+        if (cached && (cached.tokenHash === expectedSuccessorHash || cached.nextTokenHash === expectedSuccessorHash || cached.successorHash === expectedSuccessorHash)) {
+          await this.deleteCachedResponse(tokenHash);
+          return true;
+        }
+        return false;
       }
     } catch {
-      // Best effort
+      return false;
     }
-    return false;
+  }
+
+  /**
+   * Acquires a distributed rotation lock scoped to the hash of R1.
+   * Uses atomic Redis SET key value NX PX <ttlMs>.
+   *
+   * @param {string} tokenHash
+   * @param {string} lockOwner - Cryptographically random owner UUID
+   * @param {number} [ttlMs=5000] - Lock expiration in milliseconds
+   * @returns {Promise<boolean>} True if lock acquired, false if held by another request
+   */
+  async acquireRotationLock(tokenHash, lockOwner, ttlMs = 5000) {
+    if (this.simulatedOutage) {
+      throw new ReplayCacheOutageError('Simulated Redis outage during lock acquisition.');
+    }
+    if (!tokenHash || !lockOwner) return false;
+
+    const lockKey = `lock:rotation:${tokenHash}`;
+    try {
+      const res = await this.client.set(lockKey, lockOwner, 'PX', ttlMs, 'NX');
+      return res === 'OK' || res === true;
+    } catch (err) {
+      throw new ReplayCacheOutageError(`Redis lock acquire failed: ${sanitizeErrorMessage(err.message)}`);
+    }
+  }
+
+  /**
+   * Releases a distributed rotation lock ONLY if held by the specified lockOwner.
+   * Uses an atomic Lua script to compare ownership and delete in one step.
+   *
+   * @param {string} tokenHash
+   * @param {string} lockOwner
+   * @returns {Promise<boolean>}
+   */
+  async releaseRotationLock(tokenHash, lockOwner) {
+    if (this.simulatedOutage || !tokenHash || !lockOwner) return false;
+    const lockKey = `lock:rotation:${tokenHash}`;
+
+    const luaScript = `
+      if redis.call('get', KEYS[1]) == ARGV[1] then
+        return redis.call('del', KEYS[1])
+      else
+        return 0
+      end
+    `;
+
+    try {
+      if (typeof this.client.eval === 'function') {
+        const res = await this.client.eval(luaScript, 1, lockKey, lockOwner);
+        return res === 1 || res === true;
+      } else {
+        const currentOwner = await this.client.get(lockKey);
+        if (currentOwner === lockOwner) {
+          await this.client.del(lockKey);
+          return true;
+        }
+        return false;
+      }
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Renews a distributed rotation lock for long-running transactions.
+   * 
+   * @param {string} tokenHash
+   * @param {string} lockOwner
+   * @param {number} [extensionMs=5000]
+   * @returns {Promise<boolean>}
+   */
+  async renewRotationLock(tokenHash, lockOwner, extensionMs = 5000) {
+    if (this.simulatedOutage || !tokenHash || !lockOwner) return false;
+    const lockKey = `lock:rotation:${tokenHash}`;
+
+    const luaScript = `
+      if redis.call('get', KEYS[1]) == ARGV[1] then
+        return redis.call('pexpire', KEYS[1], ARGV[2])
+      else
+        return 0
+      end
+    `;
+
+    try {
+      if (typeof this.client.eval === 'function') {
+        const res = await this.client.eval(luaScript, 1, lockKey, lockOwner, String(extensionMs));
+        return res === 1 || res === true;
+      } else {
+        const currentOwner = await this.client.get(lockKey);
+        if (currentOwner === lockOwner) {
+          return true;
+        }
+        return false;
+      }
+    } catch {
+      return false;
+    }
   }
 
   /**
    * Pings Redis to verify connectivity during startup and health/readiness checks.
-   * 
-   * @returns {Promise<boolean>}
+   * Strictly requires a valid PONG response from Redis.
+   *
+   * @returns {Promise<string>} 'PONG'
    */
   async ping() {
     if (this.simulatedOutage) {
@@ -370,7 +491,10 @@ export class RedisReplayCacheService {
     }
     try {
       const res = await this.client.ping();
-      return res === 'PONG' || res === true;
+      if (res !== 'PONG' && res !== true) {
+        throw new Error(`Invalid Redis readiness response: ${String(res)}`);
+      }
+      return 'PONG';
     } catch (err) {
       throw new ReplayCacheOutageError(`Redis ping failed: ${sanitizeErrorMessage(err.message)}`);
     }
@@ -414,7 +538,9 @@ export class InMemoryReplayCacheService {
     this.defaultTtlSeconds = Math.min(options.defaultTtlSeconds || 30, 30);
     this.simulatedOutage = false;
     this.store = new Map();
+    this.locks = new Map();
     this.key = resolveReplayCacheKey(options.secret, false);
+    this.simulatePingResponse = undefined;
   }
 
   encryptPayload(payload) {
@@ -443,11 +569,13 @@ export class InMemoryReplayCacheService {
     }
 
     const encrypted = encryptPayload(enrichedPayload, this.key);
+    const successorHash = enrichedPayload.nextTokenHash || enrichedPayload.tokenHash || payload.nextTokenHash || payload.tokenHash || null;
     const expiresAt = Date.now() + (effectiveTtl * 1000);
 
     this.store.set(tokenHash, {
       ...encrypted,
       familyId: enrichedPayload.familyId || null,
+      successorHash,
       expiresAt
     });
   }
@@ -487,27 +615,71 @@ export class InMemoryReplayCacheService {
 
   async deleteCachedResponseIfMatches(tokenHash, expectedSuccessorHash) {
     if (!tokenHash || !expectedSuccessorHash || this.simulatedOutage) return false;
-    try {
-      const cached = await this.getCachedResponse(tokenHash);
-      if (cached && (cached.tokenHash === expectedSuccessorHash || cached.nextTokenHash === expectedSuccessorHash || cached.successorTokenHash === expectedSuccessorHash)) {
-        await this.deleteCachedResponse(tokenHash);
-        return true;
-      }
-    } catch {
-      // Best effort
+    const entry = this.store.get(tokenHash);
+    if (!entry) return false;
+    if (Date.now() > entry.expiresAt) {
+      this.store.delete(tokenHash);
+      return false;
+    }
+    if (entry.successorHash === expectedSuccessorHash) {
+      this.store.delete(tokenHash);
+      return true;
+    }
+    return false;
+  }
+
+  async acquireRotationLock(tokenHash, lockOwner, ttlMs = 5000) {
+    if (this.simulatedOutage) {
+      throw new ReplayCacheOutageError('Simulated in-memory outage during lock acquisition.');
+    }
+    if (!tokenHash || !lockOwner) return false;
+    const lockKey = `lock:rotation:${tokenHash}`;
+    const current = this.locks.get(lockKey);
+    if (current && current.expiresAt > Date.now()) {
+      return false;
+    }
+    this.locks.set(lockKey, { owner: lockOwner, expiresAt: Date.now() + ttlMs });
+    return true;
+  }
+
+  async releaseRotationLock(tokenHash, lockOwner) {
+    if (!tokenHash || !lockOwner) return false;
+    const lockKey = `lock:rotation:${tokenHash}`;
+    const current = this.locks.get(lockKey);
+    if (current && current.owner === lockOwner) {
+      this.locks.delete(lockKey);
+      return true;
+    }
+    return false;
+  }
+
+  async renewRotationLock(tokenHash, lockOwner, extensionMs = 5000) {
+    if (!tokenHash || !lockOwner) return false;
+    const lockKey = `lock:rotation:${tokenHash}`;
+    const current = this.locks.get(lockKey);
+    if (current && current.owner === lockOwner && current.expiresAt > Date.now()) {
+      current.expiresAt = Date.now() + extensionMs;
+      return true;
     }
     return false;
   }
 
   clear() {
     this.store.clear();
+    this.locks.clear();
   }
 
   async ping() {
     if (this.simulatedOutage) {
       throw new ReplayCacheOutageError('Simulated in-memory outage during ping.');
     }
-    return true;
+    if (this.simulatePingResponse !== undefined) {
+      if (this.simulatePingResponse !== 'PONG' && this.simulatePingResponse !== true) {
+        throw new Error(`Unexpected Redis ping response: ${String(this.simulatePingResponse)}`);
+      }
+      return this.simulatePingResponse;
+    }
+    return 'PONG';
   }
 
   async close() {

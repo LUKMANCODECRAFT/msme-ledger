@@ -172,33 +172,56 @@ Conforms strictly to Section 4.3 of the Phase 4 Architecture Plan:
   - Double cleanups across transient retry iterations are prevented via idempotent session tracking flags.
   - Cleanup errors do not mask original transaction or application errors.
 
+### 2.15 Distributed Per-Token Rotation Locking
+- **Module:** `server/src/services/replayCacheService.js` and `server/src/services/refreshTokenService.js`
+- **Specification:**
+  - Acquires a distributed lock scoped to `lock:rotation:${tokenHash}` using atomic `SET key value NX PX <ttlMs>` before entering MongoDB transactions or writing pre-commit cache entries.
+  - Cryptographically random owner UUID (`crypto.randomUUID()`) prevents cross-request lock manipulation.
+  - Safe release via Lua script ensures a request releases only its own lock.
+  - Concurrent requests presenting the same active $R_1$ immediately receive `409 Conflict` (`CONCURRENT_REFRESH_IN_PROGRESS`) without consuming the token or revoking the family.
+  - If Redis is unavailable, fails safely with `503 Service Unavailable` without consuming $R_1$.
+
+### 2.16 Atomic Replay Cache Compare-and-Delete (Lua Script)
+- **Module:** `server/src/services/replayCacheService.js` (`deleteCachedResponseIfMatches`)
+- **Mechanism:**
+  - Evaluates an atomic Redis Lua script comparing the stored envelope's `successorHash` against the caller's expected successor hash.
+  - Eliminates read-then-delete race conditions, guaranteeing that an aborted transaction's cleanup never removes a concurrent request's valid committed successor.
+
+### 2.17 Strict Redis Readiness Validation & Pre-Redis Mongo Verification
+- **Module:** `server/src/server.js` (`initializeProductionServices`, `startServer`)
+- **Guarantees:**
+  - Production `MONGO_URI` is verified before constructing or connecting to Redis, preventing orphaned connections if MongoDB configuration is missing.
+  - `replayCache.ping()` strictly requires a valid `'PONG'` response; `false`, `null`, unexpected values, or timeouts throw sanitized `REDIS_READINESS_FAILED`.
+  - Failures during startup (Mongo connection, HTTP listen) trigger complete cleanup of opened Redis, MongoDB, and server handles.
+
 ---
 
 ## 3. Verification Evidence by Category
 
 ### A. Vitest Suite Results
-- **Total Test Files:** 13 passed (13)
-- **Total Tests:** 224 passed (224)
+- **Total Test Files:** 14 passed (14)
+- **Total Tests:** 236 passed (236)
 - **Test File Breakdown:**
-  1. `src/test/stage_4_1b_production_reliability.test.js`: 21 passed (DI enforcement, secret redaction, MongoDB URI requirement, session lifecycle, replay abort isolation)
-  2. `src/test/stage_4_1b_final_remediation.test.js`: 18 passed (production bootstrap, route retirement, transaction retry)
-  3. `src/test/auth_refresh_remediation.test.js`: 25 passed (atomic rotation, Redis clustering, signing fail-closed, logout reliability)
-  4. `src/test/auth_refresh_lifecycle.test.js`: 37 passed (Stage 4.1B lifecycle and concurrency suite)
-  5. `src/test/auth_foundations.test.js`: 61 passed (Stage 4.1A Argon2id & RS256 token suite)
-  6. `src/test/mongoose_target_schemas.test.js`: 8 passed (target schema index verification)
-  7. `src/test/migration_architecture.test.js`: 10 passed
-  8. `src/test/debt_reconciliation.test.js`: 10 passed
-  9. `src/test/inventory_domain.test.js`: 17 passed
-  10. `src/test/dexie_databases.test.js`: 7 passed
-  11. `src/test/onboarding.test.jsx`: 4 passed
-  12. `src/test/stock_movement_safeguard.test.js`: 5 passed
-  13. `src/test/smoke.test.js`: 1 passed
+  1. `src/test/stage_4_1b_concurrency_readiness.test.js`: 12 passed (distributed locking, Lua atomic delete, strict ping, pre-Redis Mongo validation, resource cleanup)
+  2. `src/test/stage_4_1b_production_reliability.test.js`: 21 passed (DI enforcement, secret redaction, MongoDB URI requirement, session lifecycle, replay abort isolation)
+  3. `src/test/stage_4_1b_final_remediation.test.js`: 18 passed (production bootstrap, route retirement, transaction retry)
+  4. `src/test/auth_refresh_remediation.test.js`: 25 passed (atomic rotation, Redis clustering, signing fail-closed, logout reliability)
+  5. `src/test/auth_refresh_lifecycle.test.js`: 37 passed (Stage 4.1B lifecycle and concurrency suite)
+  6. `src/test/auth_foundations.test.js`: 61 passed (Stage 4.1A Argon2id & RS256 token suite)
+  7. `src/test/mongoose_target_schemas.test.js`: 8 passed (target schema index verification)
+  8. `src/test/migration_architecture.test.js`: 10 passed
+  9. `src/test/debt_reconciliation.test.js`: 10 passed
+  10. `src/test/inventory_domain.test.js`: 17 passed
+  11. `src/test/dexie_databases.test.js`: 7 passed
+  12. `src/test/onboarding.test.jsx`: 4 passed
+  13. `src/test/stock_movement_safeguard.test.js`: 5 passed
+  14. `src/test/smoke.test.js`: 1 passed
 
 ### B. Verification Category Matrix
 
 | Verification Category | Execution Status | Evidence / Notes |
 |---|---|---|
-| **Unit Tests** | **PASSED** | 224 passing tests covering Argon2id, RS256 claims, AES-256-GCM authenticated encryption, CSRF headers, cookies, DI guards, redaction, and session cleanup. |
+| **Unit Tests** | **PASSED** | 236 passing tests covering distributed locking, Lua atomic delete, Argon2id, RS256 claims, AES-256-GCM authenticated encryption, CSRF headers, cookies, DI guards, redaction, and session cleanup. |
 | **Mocked Infrastructure Tests** | **PASSED** | Multi-instance Redis mock and transactional store adapter verify cluster sharing, transaction retry, rollback, and race conditions. |
 | **Real MongoDB Replica-Set Integration** | **UNVERIFIED LOCALLY** | Standalone local daemon does not support multi-document transactions. Tested via deterministic adapter with topology check; real replica-set tests require staging environment. |
 | **Real Redis Integration** | **UNVERIFIED LOCALLY** | Tested via Redis mock adapter and ioredis interface; real Redis server was not provisioned in local test runner. |

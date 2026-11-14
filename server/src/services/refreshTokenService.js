@@ -36,6 +36,7 @@ export class RefreshTokenError extends Error {
     this.name = 'RefreshTokenError';
     this.code = code;
     this.statusCode = statusCode;
+    this.status = statusCode;
     Object.assign(this, extra);
   }
 }
@@ -644,90 +645,127 @@ export class RefreshTokenService {
     // CASE A: Token is ACTIVE — Perform Transactionally Atomic Rotation
     // =========================================================================
     if (currentToken.status === 'active') {
-      const { rawToken: nextRawToken, tokenHash: nextTokenHash } = generateRefreshToken();
+      const lockOwner = crypto.randomUUID();
+      let lockAcquired = false;
 
-      // Resolve user for access token claims before database commit
-      const user = await this.store.findUserById(currentToken.userId);
-      const email = user?.email || options.email;
-      if (!email) {
-        throw new RefreshTokenError('USER_EMAIL_NOT_FOUND', 500, 'Unable to resolve user email for access token signing.');
+      // 1. Acquire distributed per-token rotation lock in Redis
+      if (this.replayCache && typeof this.replayCache.acquireRotationLock === 'function') {
+        try {
+          lockAcquired = await this.replayCache.acquireRotationLock(tokenHash, lockOwner, 5000);
+        } catch (lockErr) {
+          // Outage during lock acquisition: fail safely without consuming R1
+          console.error('[AUTH_ROTATION_LOCK_ERROR] Failed to acquire rotation lock:', lockErr.message);
+          throw new RefreshTokenError(
+            'REPLAY_CACHE_WRITE_FAILURE',
+            503,
+            'Replay cache lock unavailable. Rotation aborted to prevent race condition.'
+          );
+        }
+
+        if (!lockAcquired) {
+          // Another concurrent request is actively rotating this exact token!
+          // Follow approved Tier 1 concurrency response contract: do not revoke family.
+          throw new RefreshTokenError(
+            'CONCURRENT_REFRESH_IN_PROGRESS',
+            409,
+            'Concurrent refresh in progress; retry in 1 second.',
+            { retryAfter: 1 }
+          );
+        }
       }
 
-      const accessToken = signAccessToken(
-        {
-          sub: currentToken.userId,
-          email,
-          defaultBusinessId: user?.defaultBusinessId || null
-        },
-        this.signingKey,
-        {
-          kid: this.kid,
-          expiresInSeconds: JWT_CONFIG.MAX_ACCESS_TOKEN_TTL_SECONDS
+      try {
+        const { rawToken: nextRawToken, tokenHash: nextTokenHash } = generateRefreshToken();
+
+        // Resolve user for access token claims before database commit
+        const user = await this.store.findUserById(currentToken.userId);
+        const email = user?.email || options.email;
+        if (!email) {
+          throw new RefreshTokenError('USER_EMAIL_NOT_FOUND', 500, 'Unable to resolve user email for access token signing.');
         }
-      );
 
-      const responsePayload = {
-        accessToken,
-        refreshToken: nextRawToken,
-        tokenType: 'Bearer',
-        expiresIn: JWT_CONFIG.MAX_ACCESS_TOKEN_TTL_SECONDS
-      };
-
-      const successorExpiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-      let cacheWriteSucceeded = false;
-
-      // Execute transactionally atomic rotation with pre-commit cache write hook
-      const rotationResult = await this.store.rotateTokenAtomic({
-        currentTokenId: currentToken.id,
-        familyId: currentToken.familyId,
-        oldTokenHash: tokenHash,
-        nextTokenHash: nextTokenHash,
-        successorDoc: {
-          id: crypto.randomUUID(),
-          userId: currentToken.userId,
-          familyId: currentToken.familyId,
-          tokenHash: nextTokenHash,
-          status: 'active',
-          expiresAt: successorExpiresAt,
-          userAgent: options.userAgent || currentToken.userAgent || null,
-          ipAddress: options.ipAddress || currentToken.ipAddress || null
-        },
-        now,
-        preCommitHook: async () => {
-          // Replay cache persistence hook:
-          // Rotation is committed ONLY IF the response package is successfully cached!
-          try {
-            await this.replayCache.setCachedResponse(tokenHash, responsePayload, 30, currentToken.familyId);
-            cacheWriteSucceeded = true;
-          } catch (cacheErr) {
-            // Log sanitized error: zero tokens, zero keys
-            console.error('[AUTH_REPLAY_CACHE_ERROR] Failed to write encrypted response to replay cache:', cacheErr.message);
-            throw new RefreshTokenError(
-              'REPLAY_CACHE_WRITE_FAILURE',
-              503,
-              'Replay cache write failed. Rotation aborted to prevent delivery loss vulnerability.'
-            );
+        const accessToken = signAccessToken(
+          {
+            sub: currentToken.userId,
+            email,
+            defaultBusinessId: user?.defaultBusinessId || null
+          },
+          this.signingKey,
+          {
+            kid: this.kid,
+            expiresInSeconds: JWT_CONFIG.MAX_ACCESS_TOKEN_TTL_SECONDS
           }
-        },
-        onRollbackHook: async () => {
+        );
+
+        const responsePayload = {
+          accessToken,
+          refreshToken: nextRawToken,
+          tokenType: 'Bearer',
+          expiresIn: JWT_CONFIG.MAX_ACCESS_TOKEN_TTL_SECONDS,
+          tokenHash: nextTokenHash,
+          nextTokenHash
+        };
+
+        const successorExpiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+        let cacheWriteSucceeded = false;
+
+        // Execute transactionally atomic rotation with pre-commit cache write hook
+        const rotationResult = await this.store.rotateTokenAtomic({
+          currentTokenId: currentToken.id,
+          familyId: currentToken.familyId,
+          oldTokenHash: tokenHash,
+          nextTokenHash: nextTokenHash,
+          successorDoc: {
+            id: crypto.randomUUID(),
+            userId: currentToken.userId,
+            familyId: currentToken.familyId,
+            tokenHash: nextTokenHash,
+            status: 'active',
+            expiresAt: successorExpiresAt,
+            userAgent: options.userAgent || currentToken.userAgent || null,
+            ipAddress: options.ipAddress || currentToken.ipAddress || null
+          },
+          now,
+          preCommitHook: async () => {
+            // Replay cache persistence hook:
+            // Rotation is committed ONLY IF the response package is successfully cached!
+            try {
+              await this.replayCache.setCachedResponse(tokenHash, responsePayload, 30, currentToken.familyId);
+              cacheWriteSucceeded = true;
+            } catch (cacheErr) {
+              // Log sanitized error: zero tokens, zero keys
+              console.error('[AUTH_REPLAY_CACHE_ERROR] Failed to write encrypted response to replay cache:', cacheErr.message);
+              throw new RefreshTokenError(
+                'REPLAY_CACHE_WRITE_FAILURE',
+                503,
+                'Replay cache write failed. Rotation aborted to prevent delivery loss vulnerability.'
+              );
+            }
+          },
+          onRollbackHook: async () => {
+            if (cacheWriteSucceeded && typeof this.replayCache.deleteCachedResponseIfMatches === 'function') {
+              await this.replayCache.deleteCachedResponseIfMatches(tokenHash, nextTokenHash);
+            }
+          }
+        });
+
+        if (rotationResult.concurrentRace) {
           if (cacheWriteSucceeded && typeof this.replayCache.deleteCachedResponseIfMatches === 'function') {
             await this.replayCache.deleteCachedResponseIfMatches(tokenHash, nextTokenHash);
           }
+          const reRead = await this.store.findByTokenHash(tokenHash);
+          if (reRead && reRead.status === 'consumed') {
+            return this._handleConsumedToken(reRead, tokenHash, now, options);
+          }
+          throw new RefreshTokenError('CONCURRENT_ROTATION_RACE', 409, 'Concurrent rotation detected.');
         }
-      });
 
-      if (rotationResult.concurrentRace) {
-        if (cacheWriteSucceeded && typeof this.replayCache.deleteCachedResponseIfMatches === 'function') {
-          await this.replayCache.deleteCachedResponseIfMatches(tokenHash, nextTokenHash);
+        return responsePayload;
+      } finally {
+        if (lockAcquired && typeof this.replayCache.releaseRotationLock === 'function') {
+          await this.replayCache.releaseRotationLock(tokenHash, lockOwner).catch(() => {});
         }
-        const reRead = await this.store.findByTokenHash(tokenHash);
-        if (reRead && reRead.status === 'consumed') {
-          return this._handleConsumedToken(reRead, tokenHash, now, options);
-        }
-        throw new RefreshTokenError('CONCURRENT_ROTATION_RACE', 409, 'Concurrent rotation detected.');
       }
-
-      return responsePayload;
     }
 
     // =========================================================================
