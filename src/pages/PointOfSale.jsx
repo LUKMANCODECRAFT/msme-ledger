@@ -1,83 +1,76 @@
 import React, { useState, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { msme_ledger_db, usePendingSyncCount } from '../config/db.js';
+import { msme_ledger_db } from '../config/db.js';
 import { recordSale, createCustomer, addInventory } from '../services/ledgerService.js';
-import { pushPendingData } from '../services/syncService.js';
-
-const formatNaira = (koboAmount) => {
-  return new Intl.NumberFormat('en-NG', {
-    style: 'currency',
-    currency: 'NGN',
-    minimumFractionDigits: 2
-  }).format(koboAmount / 100);
-};
+import { formatNaira } from '../utils/formatters.js';
+import Button from '../components/common/Button.jsx';
+import Modal from '../components/common/Modal.jsx';
+import Badge from '../components/common/Badge.jsx';
 
 export default function PointOfSale() {
-  const pendingCount = usePendingSyncCount();
-
   const customers = useLiveQuery(() => msme_ledger_db.customers.toArray()) || [];
   const inventory = useLiveQuery(() => msme_ledger_db.inventory.toArray()) || [];
 
+  // Register State
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
   const [cart, setCart] = useState({}); // Shape: { [inventoryId]: { item, quantity } }
-  const [amountPaidInput, setAmountPaidInput] = useState('');
+  const [amountPaidNaira, setAmountPaidNaira] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('cash'); // 'cash' | 'bank_transfer' | 'pos'
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [productSearch, setProductSearch] = useState('');
 
-  // New Record State
-  const [isAddingCustomer, setIsAddingCustomer] = useState(false);
+  // Modals
+  const [isAddCustomerOpen, setIsAddCustomerOpen] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState('');
   const [newCustomerPhone, setNewCustomerPhone] = useState('');
 
-  const [isAddingInventory, setIsAddingInventory] = useState(false);
-  const [newInventoryName, setNewInventoryName] = useState('');
-  const [newInventoryPrice, setNewInventoryPrice] = useState('');
-  const [newInventoryStock, setNewInventoryStock] = useState('');
+  const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [newProductName, setNewProductName] = useState('');
+  const [newProductPriceNaira, setNewProductPriceNaira] = useState('');
+  const [newProductStock, setNewProductStock] = useState('');
 
-  const handleAddCustomer = async (e) => {
-    e.preventDefault();
-    if (!newCustomerName || !newCustomerPhone) return;
-    try {
-      await createCustomer({ name: newCustomerName, phone: newCustomerPhone });
-      setNewCustomerName('');
-      setNewCustomerPhone('');
-      setIsAddingCustomer(false);
-    } catch (err) {
-      alert(err.message);
-    }
-  };
+  // Receipt Modal State
+  const [receiptData, setReceiptData] = useState(null);
 
-  const handleAddInventory = async (e) => {
-    e.preventDefault();
-    if (!newInventoryName || !newInventoryPrice || !newInventoryStock) return;
-    try {
-      const priceKobo = Math.floor(parseFloat(newInventoryPrice) * 100);
-      await addInventory({ itemName: newInventoryName, price: priceKobo, stockCount: newInventoryStock });
-      setNewInventoryName('');
-      setNewInventoryPrice('');
-      setNewInventoryStock('');
-      setIsAddingInventory(false);
-    } catch (err) {
-      alert(err.message);
-    }
-  };
+  // Filtered Inventory list
+  const filteredInventory = useMemo(() => {
+    if (!productSearch.trim()) return inventory;
+    const q = productSearch.toLowerCase();
+    return inventory.filter(i => (i.itemName || '').toLowerCase().includes(q));
+  }, [inventory, productSearch]);
 
+  // Filtered Customers list
+  const filteredCustomers = useMemo(() => {
+    if (!customerSearch.trim()) return customers;
+    const q = customerSearch.toLowerCase();
+    return customers.filter(c => (c.name || '').toLowerCase().includes(q) || (c.phone || '').includes(q));
+  }, [customers, customerSearch]);
 
+  const cartItems = useMemo(() => Object.values(cart), [cart]);
 
-  const cartItems = Object.values(cart);
-
+  // Cart total in integer kobo
   const totalAmountKobo = useMemo(() => {
     return cartItems.reduce((total, cartItem) => {
       return total + (cartItem.item.price * cartItem.quantity);
     }, 0);
   }, [cartItems]);
 
+  const totalAmountNaira = totalAmountKobo / 100;
+
+  // Add item to cart
   const handleAddToCart = (item) => {
+    if ((item.stockCount || 0) <= 0) {
+      alert(`"${item.itemName}" is out of stock.`);
+      return;
+    }
+
     setCart((prev) => {
       const existing = prev[item.id];
       const newQuantity = existing ? existing.quantity + 1 : 1;
 
       if (newQuantity > item.stockCount) {
-        alert("Cannot add more than available stock.");
+        alert(`Cannot add more than available stock (${item.stockCount} units available).`);
         return prev;
       }
 
@@ -91,19 +84,20 @@ export default function PointOfSale() {
     });
   };
 
+  // Adjust item quantity in cart
   const handleUpdateQuantity = (inventoryId, newQuantity) => {
     if (newQuantity <= 0) {
       setCart((prev) => {
-        const updated = { ...prev };
-        delete updated[inventoryId];
-        return updated;
+        const copy = { ...prev };
+        delete copy[inventoryId];
+        return copy;
       });
       return;
     }
 
     const item = inventory.find(i => i.id === inventoryId);
     if (item && newQuantity > item.stockCount) {
-      alert("Cannot exceed available stock.");
+      alert(`Cannot exceed available stock of ${item.stockCount} units.`);
       return;
     }
 
@@ -116,287 +110,605 @@ export default function PointOfSale() {
     }));
   };
 
+  // Quick helper: Set exact payment amount
+  const handleSetExactPayment = () => {
+    setAmountPaidNaira(totalAmountNaira.toString());
+  };
+
+  // Create new customer
+  const handleCreateCustomerSubmit = async (e) => {
+    e.preventDefault();
+    if (!newCustomerName.trim() || !newCustomerPhone.trim()) return;
+    try {
+      const newId = await createCustomer({
+        name: newCustomerName.trim(),
+        phone: newCustomerPhone.trim()
+      });
+      setSelectedCustomerId(newId);
+      setNewCustomerName('');
+      setNewCustomerPhone('');
+      setIsAddCustomerOpen(false);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  // Create new inventory product
+  const handleCreateProductSubmit = async (e) => {
+    e.preventDefault();
+    if (!newProductName.trim() || !newProductPriceNaira || !newProductStock) return;
+    try {
+      const parsedPriceNaira = parseFloat(newProductPriceNaira);
+      const parsedStock = parseInt(newProductStock, 10);
+      if (isNaN(parsedPriceNaira) || parsedPriceNaira <= 0 || isNaN(parsedStock) || parsedStock < 0) {
+        alert('Please enter valid positive numbers for price and stock count.');
+        return;
+      }
+
+      const priceKobo = Math.floor(parsedPriceNaira * 100);
+      await addInventory({
+        itemName: newProductName.trim(),
+        price: priceKobo,
+        stockCount: parsedStock
+      });
+
+      setNewProductName('');
+      setNewProductPriceNaira('');
+      setNewProductStock('');
+      setIsAddProductOpen(false);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  // Finalize Sale
   const handleCheckout = async (e) => {
     e.preventDefault();
+
     if (!selectedCustomerId) {
-      alert("Please select a customer.");
-      return;
-    }
-    if (cartItems.length === 0) {
-      alert("Cart is empty.");
+      alert('Please select or add a customer for this transaction.');
       return;
     }
 
-    const parsedAmountNaira = parseFloat(amountPaidInput);
-    if (isNaN(parsedAmountNaira) || parsedAmountNaira < 0) {
-      alert("Please enter a valid amount paid in Naira.");
+    if (cartItems.length === 0) {
+      alert('Cart is empty. Add products from the catalog to proceed.');
+      return;
+    }
+
+    const parsedPaidNaira = parseFloat(amountPaidNaira === '' ? '0' : amountPaidNaira);
+    if (isNaN(parsedPaidNaira) || parsedPaidNaira < 0) {
+      alert('Please enter a valid amount paid in Naira (₦).');
       return;
     }
 
     setIsSubmitting(true);
-
     try {
-      const itemsPayload = cartItems.map(cartItem => ({
-        inventoryId: cartItem.item.id,
-        quantity: cartItem.quantity,
-        price: cartItem.item.price // Native Kobo price fetched directly from db
+      const amountPaidKobo = Math.floor(parsedPaidNaira * 100);
+      const itemsPayload = cartItems.map(c => ({
+        inventoryId: c.item.id,
+        quantity: c.quantity,
+        price: c.item.price
       }));
 
-      // Conversion: Naira input * 100 = Kobo
-      const amountPaidKobo = Math.floor(parsedAmountNaira * 100);
-
-      await recordSale({
+      const saleId = await recordSale({
         customerId: selectedCustomerId,
         items: itemsPayload,
         amountPaid: amountPaidKobo
       });
 
-      // Clear the local state on success
+      const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
+      const balanceKobo = Math.max(0, totalAmountKobo - amountPaidKobo);
+
+      // Show receipt modal
+      setReceiptData({
+        saleId,
+        customerName: selectedCustomer?.name || 'Customer',
+        items: [...cartItems],
+        totalKobo: totalAmountKobo,
+        amountPaidKobo,
+        balanceKobo,
+        date: new Date()
+      });
+
+      // Reset cart and inputs
       setCart({});
-      setAmountPaidInput('');
+      setAmountPaidNaira('');
       setSelectedCustomerId('');
-      alert("Sale recorded successfully.");
+      setCustomerSearch('');
     } catch (error) {
-      // Alert any shortages or transactional failures bubbled up from ledgerService
-      alert(error.message);
+      alert(`Sale failed: ${error.message}`);
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  const selectedCustomerObj = customers.find(c => c.id === selectedCustomerId);
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
-      {/* 2. The Offline-Aware Header */}
-      <header className="bg-slate-900 text-slate-50 p-4 flex items-center justify-between shadow-md z-10 relative">
-        <h1 className="text-xl font-bold tracking-tight">{localStorage.getItem('shopName') || 'MSME Ledger'}</h1>
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              if (pendingCount > 0) {
-                pushPendingData().then(() => alert('Manual sync process initiated! Check the backend terminal.'));
-              }
-            }}
-            className={`text-sm font-medium px-3 py-1 rounded-full border transition-all ${pendingCount > 0
-                ? 'bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200 cursor-pointer shadow-sm active:scale-95'
-                : 'bg-emerald-800 text-emerald-100 border-emerald-700 cursor-default'
-              }`}
-            title={pendingCount > 0 ? "Click to force a manual sync to MongoDB" : "All data is securely backed up"}
-          >
-            {pendingCount > 0 ? `Sync Queue: ${pendingCount} (Force Sync)` : "✓ Synced"}
-          </button>
-        </div>
-      </header>
-
-      {/* 3. The Fast-Entry Layout */}
-      <main className="flex-1 p-4 flex flex-col md:flex-row gap-6 max-w-7xl mx-auto w-full">
-
-        {/* Left Column: Selection Areas */}
-        <div className="flex-1 flex flex-col gap-6">
-          {/* Section A: Customer Selection */}
-          <section className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-            <div className="flex justify-between items-center mb-4">
-              <label htmlFor="customerSelect" className="block text-sm font-semibold text-slate-700">
-                Select Customer
-              </label>
-              <button 
-                onClick={() => setIsAddingCustomer(!isAddingCustomer)}
-                className="text-xs font-bold text-emerald-600 hover:text-emerald-700 transition-colors"
-              >
-                {isAddingCustomer ? 'Cancel' : '+ New Customer'}
-              </button>
-            </div>
-
-            {isAddingCustomer && (
-              <form onSubmit={handleAddCustomer} className="mb-4 p-4 bg-slate-50 border border-slate-200 rounded-lg flex flex-col gap-3">
-                <input 
-                  type="text" 
-                  placeholder="Customer Name" 
-                  required 
-                  value={newCustomerName} 
-                  onChange={e => setNewCustomerName(e.target.value)} 
-                  className="w-full p-3 border border-slate-300 rounded-md focus:ring-2 focus:ring-emerald-600 outline-none"
-                />
-                <input 
-                  type="tel" 
-                  placeholder="Phone Number (Required for WhatsApp)" 
-                  required 
-                  value={newCustomerPhone} 
-                  onChange={e => setNewCustomerPhone(e.target.value)} 
-                  className="w-full p-3 border border-slate-300 rounded-md focus:ring-2 focus:ring-emerald-600 outline-none"
-                />
-                <button type="submit" className="w-full p-3 bg-emerald-600 text-white font-bold rounded-md hover:bg-emerald-700">
-                  Save Customer
-                </button>
-              </form>
-            )}
-
-            <select
-              id="customerSelect"
-              className="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 transition-colors"
-              value={selectedCustomerId}
-              onChange={(e) => setSelectedCustomerId(e.target.value)}
+    <div className="flex flex-col lg:flex-row gap-6 animate-in fade-in duration-200">
+      {/* ------------------------------------------------------------------- */}
+      {/* Left Column: Product Catalog & Selection */}
+      {/* ------------------------------------------------------------------- */}
+      <div className="flex-1 space-y-5">
+        {/* Customer Selection Card */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs">
+          <div className="flex items-center justify-between mb-3">
+            <label htmlFor="customerSelect" className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              Select Customer
+            </label>
+            <button
+              type="button"
+              onClick={() => setIsAddCustomerOpen(true)}
+              className="text-xs font-bold text-emerald-600 hover:text-emerald-700 transition-colors"
             >
-              <option value="" disabled>-- Choose a Customer --</option>
-              {customers.map((customer) => (
-                <option key={customer.id} value={customer.id}>
-                  {customer.name} ({customer.phone})
-                </option>
-              ))}
-            </select>
-          </section>
+              + New Customer
+            </button>
+          </div>
 
-          {/* Section B: Inventory Tap-Grid */}
-          <section className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex-1 flex flex-col">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold text-slate-800">Inventory</h2>
-              <button 
-                onClick={() => setIsAddingInventory(!isAddingInventory)}
-                className="text-xs font-bold text-emerald-600 hover:text-emerald-700 transition-colors"
-              >
-                {isAddingInventory ? 'Cancel' : '+ New Item'}
-              </button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <input
+                type="text"
+                placeholder="Filter customers by name/phone..."
+                value={customerSearch}
+                onChange={(e) => setCustomerSearch(e.target.value)}
+                className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+              />
             </div>
+            <div>
+              <select
+                id="customerSelect"
+                value={selectedCustomerId}
+                onChange={(e) => setSelectedCustomerId(e.target.value)}
+                className="w-full text-xs font-semibold p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+              >
+                <option value="">-- Choose Customer ({filteredCustomers.length}) --</option>
+                {filteredCustomers.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.phone}) {c.totalDebt > 0 ? `[Owes ${formatNaira(c.totalDebt)}]` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
 
-            {isAddingInventory && (
-              <form onSubmit={handleAddInventory} className="mb-4 p-4 bg-slate-50 border border-slate-200 rounded-lg flex flex-col gap-3">
-                <input 
-                  type="text" 
-                  placeholder="Item Name" 
-                  required 
-                  value={newInventoryName} 
-                  onChange={e => setNewInventoryName(e.target.value)} 
-                  className="w-full p-3 border border-slate-300 rounded-md focus:ring-2 focus:ring-emerald-600 outline-none"
-                />
-                <div className="flex gap-3">
-                  <input 
-                    type="number" 
-                    step="0.01"
-                    min="0"
-                    placeholder="Price (NGN)" 
-                    required 
-                    value={newInventoryPrice} 
-                    onChange={e => setNewInventoryPrice(e.target.value)} 
-                    className="flex-1 p-3 border border-slate-300 rounded-md focus:ring-2 focus:ring-emerald-600 outline-none"
-                  />
-                  <input 
-                    type="number" 
-                    min="0"
-                    placeholder="Initial Stock" 
-                    required 
-                    value={newInventoryStock} 
-                    onChange={e => setNewInventoryStock(e.target.value)} 
-                    className="flex-1 p-3 border border-slate-300 rounded-md focus:ring-2 focus:ring-emerald-600 outline-none"
-                  />
-                </div>
-                <button type="submit" className="w-full p-3 bg-emerald-600 text-white font-bold rounded-md hover:bg-emerald-700">
-                  Save Inventory Item
-                </button>
-              </form>
-            )}
+          {selectedCustomerObj && (
+            <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+              <span className="font-semibold text-slate-900">
+                Selected: {selectedCustomerObj.name} ({selectedCustomerObj.phone})
+              </span>
+              {selectedCustomerObj.totalDebt > 0 ? (
+                <span className="font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-100">
+                  Current Balance: {formatNaira(selectedCustomerObj.totalDebt)}
+                </span>
+              ) : (
+                <span className="font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
+                  Clean Balance (₦0.00)
+                </span>
+              )}
+            </div>
+          )}
+        </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 overflow-y-auto">
-              {inventory.map((item) => {
-                const stockRemaining = item.stockCount - (cart[item.id]?.quantity || 0);
-                const isOutOfStock = stockRemaining <= 0;
+        {/* Product Catalog Card */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h3 className="text-base font-bold text-slate-900 tracking-tight">Merchandise Catalog</h3>
+              <p className="text-xs text-slate-500">Tap products to add to current order cart</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="Search catalog..."
+                value={productSearch}
+                onChange={(e) => setProductSearch(e.target.value)}
+                className="text-xs p-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none w-44"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsAddProductOpen(true)}
+              >
+                + Add Item
+              </Button>
+            </div>
+          </div>
+
+          {filteredInventory.length === 0 ? (
+            <div className="p-8 text-center border-2 border-dashed border-slate-200 rounded-xl">
+              <p className="text-sm font-semibold text-slate-600 mb-2">No merchandise available</p>
+              <p className="text-xs text-slate-400 mb-4">Add your retail inventory items to begin ringing up sales.</p>
+              <Button variant="primary" size="sm" onClick={() => setIsAddProductOpen(true)}>
+                Add First Product
+              </Button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 max-h-[500px] overflow-y-auto pr-1">
+              {filteredInventory.map(item => {
+                const inCartCount = cart[item.id]?.quantity || 0;
+                const isOutOfStock = (item.stockCount || 0) <= 0;
+                const isLowStock = !isOutOfStock && item.stockCount <= 5;
 
                 return (
                   <button
                     key={item.id}
+                    type="button"
                     onClick={() => handleAddToCart(item)}
                     disabled={isOutOfStock}
-                    className={`flex flex-col p-4 rounded-lg border text-left transition-all ${isOutOfStock
-                        ? 'bg-slate-100 border-slate-200 opacity-60 cursor-not-allowed'
-                        : 'bg-white border-slate-300 hover:border-emerald-600 hover:shadow-md active:bg-emerald-50'
-                      }`}
+                    className={`p-3.5 rounded-xl border text-left transition-all relative flex flex-col justify-between group ${
+                      isOutOfStock
+                        ? 'bg-slate-50 border-slate-200 opacity-60 cursor-not-allowed'
+                        : 'bg-white border-slate-200 hover:border-emerald-500 hover:shadow-xs active:scale-[0.98]'
+                    }`}
                   >
-                    <span className="font-semibold text-slate-900 truncate w-full">{item.itemName}</span>
-                    <span className="text-emerald-700 font-bold mt-1">{formatNaira(item.price)}</span>
-                    <span className="text-xs text-slate-500 mt-3 font-medium">Stock: {stockRemaining}</span>
+                    {inCartCount > 0 && (
+                      <span className="absolute top-2 right-2 w-5 h-5 rounded-full bg-emerald-600 text-white font-bold text-2xs flex items-center justify-center shadow-xs">
+                        {inCartCount}
+                      </span>
+                    )}
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 group-hover:text-emerald-700 transition-colors line-clamp-2">
+                        {item.itemName}
+                      </h4>
+                      <p className="text-sm font-black text-emerald-600 mt-1">
+                        {formatNaira(item.price)}
+                      </p>
+                    </div>
+
+                    <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-2xs">
+                      <span className={`font-semibold ${
+                        isOutOfStock ? 'text-rose-600' :
+                        isLowStock ? 'text-amber-600' : 'text-slate-500'
+                      }`}>
+                        {isOutOfStock ? 'Out of Stock' : `${item.stockCount} left`}
+                      </span>
+                      <span className="text-emerald-600 font-bold group-hover:underline">
+                        + Add
+                      </span>
+                    </div>
                   </button>
                 );
               })}
-              {inventory.length === 0 && (
-                <div className="col-span-full p-6 text-center text-slate-500 border-2 border-dashed border-slate-300 rounded-lg">
-                  No inventory items available.
-                </div>
-              )}
             </div>
-          </section>
+          )}
         </div>
+      </div>
 
-        {/* Right Column: Cart & Checkout (Section C) */}
-        <aside className="w-full md:w-96 bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col h-auto md:max-h-[calc(100vh-8rem)]">
-          <h2 className="text-lg font-semibold text-slate-800 mb-4 border-b border-slate-200 pb-2">Cart & Checkout</h2>
+      {/* ------------------------------------------------------------------- */}
+      {/* Right Column: Order Cart & Cashier Checkout */}
+      {/* ------------------------------------------------------------------- */}
+      <div className="w-full lg:w-96 shrink-0">
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-5 sticky top-20 space-y-5">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div>
+              <h3 className="text-base font-bold text-slate-900 tracking-tight">Active Register Cart</h3>
+              <p className="text-xs text-slate-500">{cartItems.length} distinct item{cartItems.length === 1 ? '' : 's'}</p>
+            </div>
+            {cartItems.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setCart({})}
+                className="text-xs font-semibold text-rose-600 hover:text-rose-700 hover:underline"
+              >
+                Clear Cart
+              </button>
+            )}
+          </div>
 
-          <div className="flex-1 overflow-y-auto min-h-[200px] mb-4 pr-1">
-            {cartItems.length === 0 ? (
-              <p className="text-slate-500 text-sm text-center mt-8 font-medium">Cart is empty.</p>
-            ) : (
-              <ul className="space-y-3">
-                {cartItems.map((cartItem) => (
-                  <li key={cartItem.item.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-lg border border-slate-200">
-                    <div className="flex flex-col overflow-hidden w-full pr-2">
-                      <span className="font-semibold text-slate-900 truncate">{cartItem.item.itemName}</span>
-                      <span className="text-xs text-slate-500 font-medium">{formatNaira(cartItem.item.price)} each</span>
+          {/* Cart Items List */}
+          {cartItems.length === 0 ? (
+            <div className="py-12 text-center text-slate-400 space-y-2">
+              <svg className="w-10 h-10 mx-auto text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+              </svg>
+              <p className="text-sm font-semibold text-slate-600">Cart is empty</p>
+              <p className="text-xs text-slate-400">Select items from the catalog on the left.</p>
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-60 overflow-y-auto pr-1 divide-y divide-slate-100">
+              {cartItems.map(c => {
+                const lineTotalKobo = c.item.price * c.quantity;
+                return (
+                  <div key={c.item.id} className="pt-2.5 first:pt-0 flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-slate-900 truncate">{c.item.itemName}</p>
+                      <p className="text-2xs text-slate-500 font-medium">
+                        {formatNaira(c.item.price)} × {c.quantity}
+                      </p>
                     </div>
-                    <div className="flex items-center gap-2">
+
+                    {/* Stepper buttons */}
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         type="button"
-                        onClick={() => handleUpdateQuantity(cartItem.item.id, cartItem.quantity - 1)}
-                        className="w-8 h-8 flex items-center justify-center bg-white border border-slate-300 rounded-md hover:bg-slate-100 text-slate-600 font-bold active:bg-slate-200 transition-colors"
+                        onClick={() => handleUpdateQuantity(c.item.id, c.quantity - 1)}
+                        className="w-6 h-6 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 font-black flex items-center justify-center text-xs transition-colors"
                       >
                         -
                       </button>
-                      <span className="w-6 text-center text-sm font-bold text-slate-900">{cartItem.quantity}</span>
+                      <span className="w-6 text-center text-xs font-bold text-slate-900">
+                        {c.quantity}
+                      </span>
                       <button
                         type="button"
-                        onClick={() => handleUpdateQuantity(cartItem.item.id, cartItem.quantity + 1)}
-                        className="w-8 h-8 flex items-center justify-center bg-white border border-slate-300 rounded-md hover:bg-slate-100 text-slate-600 font-bold active:bg-slate-200 transition-colors"
+                        onClick={() => handleUpdateQuantity(c.item.id, c.quantity + 1)}
+                        className="w-6 h-6 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 font-black flex items-center justify-center text-xs transition-colors"
                       >
                         +
                       </button>
                     </div>
-                  </li>
-                ))}
-              </ul>
-            )}
+
+                    <div className="text-right shrink-0 min-w-[70px]">
+                      <span className="text-xs font-bold text-slate-900">
+                        {formatNaira(lineTotalKobo)}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Pricing Calculation Summary */}
+          <div className="pt-4 border-t border-slate-100 space-y-2 text-xs">
+            <div className="flex justify-between text-slate-600">
+              <span>Subtotal</span>
+              <span className="font-bold text-slate-900">{formatNaira(totalAmountKobo)}</span>
+            </div>
+            <div className="flex justify-between text-base font-black text-slate-900 pt-2 border-t border-slate-100">
+              <span>Total Payable</span>
+              <span className="text-emerald-700">{formatNaira(totalAmountKobo)}</span>
+            </div>
           </div>
 
-          <form onSubmit={handleCheckout} className="border-t border-slate-200 pt-5 flex flex-col gap-5 mt-auto">
-            <div className="flex justify-between items-center bg-slate-50 p-4 rounded-lg border border-slate-200">
-              <span className="text-slate-600 font-bold">Total Amount:</span>
-              <span className="text-xl font-black text-emerald-700">{formatNaira(totalAmountKobo)}</span>
-            </div>
-
-            <div className="flex flex-col">
-              <label htmlFor="amountPaid" className="text-sm font-bold text-slate-700 mb-2">
-                Amount Paid (NGN)
-              </label>
+          {/* Payment Section */}
+          <form onSubmit={handleCheckout} className="space-y-4 pt-2 border-t border-slate-100">
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-bold text-slate-700">
+                  Amount Received (₦)
+                </label>
+                {totalAmountNaira > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleSetExactPayment}
+                    className="text-2xs font-bold text-emerald-600 hover:underline"
+                  >
+                    Exact ({formatNaira(totalAmountKobo)})
+                  </button>
+                )}
+              </div>
               <input
-                id="amountPaid"
                 type="number"
-                step="0.01"
+                step="any"
                 min="0"
                 required
-                className="w-full p-4 bg-slate-50 border border-slate-300 rounded-lg text-lg font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 transition-colors"
                 placeholder="0.00"
-                value={amountPaidInput}
-                onChange={(e) => setAmountPaidInput(e.target.value)}
+                value={amountPaidNaira}
+                onChange={(e) => setAmountPaidNaira(e.target.value)}
+                className="w-full text-base font-bold p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
               />
             </div>
 
-            <button
-              type="submit"
-              disabled={isSubmitting || cartItems.length === 0}
-              className="w-full py-4 px-6 bg-emerald-600 text-white text-lg font-black rounded-lg hover:bg-emerald-700 active:bg-emerald-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg active:shadow-sm"
-            >
-              {isSubmitting ? 'Processing...' : 'Record Sale'}
-            </button>
-          </form>
+            {/* Change or Debt Calculation preview */}
+            {amountPaidNaira !== '' && !isNaN(parseFloat(amountPaidNaira)) && (
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs flex justify-between items-center">
+                {parseFloat(amountPaidNaira) >= totalAmountNaira ? (
+                  <>
+                    <span className="font-semibold text-slate-600">Change Due:</span>
+                    <span className="font-bold text-emerald-700">
+                      ₦{(parseFloat(amountPaidNaira) - totalAmountNaira).toFixed(2)}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="font-semibold text-rose-600">Credit Created (Debt):</span>
+                    <span className="font-bold text-rose-600">
+                      ₦{(totalAmountNaira - parseFloat(amountPaidNaira)).toFixed(2)}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
 
-        </aside>
-      </main>
+            {/* Payment Method Selector */}
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1.5">
+                Payment Channel
+              </label>
+              <div className="grid grid-cols-3 gap-2 text-2xs font-bold">
+                {['cash', 'bank_transfer', 'pos'].map(method => (
+                  <button
+                    key={method}
+                    type="button"
+                    onClick={() => setPaymentMethod(method)}
+                    className={`py-2 px-2 rounded-lg border text-center uppercase tracking-wider transition-colors ${
+                      paymentMethod === method
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    {method === 'pos' ? 'Card / POS' : method.replace('_', ' ')}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <Button
+              type="submit"
+              variant="primary"
+              size="lg"
+              className="w-full"
+              isLoading={isSubmitting}
+              disabled={cartItems.length === 0 || !selectedCustomerId}
+            >
+              Complete Sale ({formatNaira(totalAmountKobo)})
+            </Button>
+          </form>
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------------- */}
+      {/* Modal: New Customer */}
+      {/* ------------------------------------------------------------------- */}
+      <Modal
+        isOpen={isAddCustomerOpen}
+        onClose={() => setIsAddCustomerOpen(false)}
+        title="Register New Customer"
+        subtitle="Quickly add a customer to your offline store database"
+      >
+        <form onSubmit={handleCreateCustomerSubmit} className="space-y-4">
+          <div>
+            <label className="text-xs font-bold text-slate-700 block mb-1">Full Name</label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. Alhaji Musa"
+              value={newCustomerName}
+              onChange={(e) => setNewCustomerName(e.target.value)}
+              className="w-full text-sm p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-700 block mb-1">Phone Number (WhatsApp)</label>
+            <input
+              type="tel"
+              required
+              placeholder="e.g. 08012345678"
+              value={newCustomerPhone}
+              onChange={(e) => setNewCustomerPhone(e.target.value)}
+              className="w-full text-sm p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" size="md" onClick={() => setIsAddCustomerOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" size="md">
+              Save Customer
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ------------------------------------------------------------------- */}
+      {/* Modal: New Product */}
+      {/* ------------------------------------------------------------------- */}
+      <Modal
+        isOpen={isAddProductOpen}
+        onClose={() => setIsAddProductOpen(false)}
+        title="Add Inventory Item"
+        subtitle="Catalog a new product for instant cashier entry"
+      >
+        <form onSubmit={handleCreateProductSubmit} className="space-y-4">
+          <div>
+            <label className="text-xs font-bold text-slate-700 block mb-1">Product / Item Name</label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. Dangote Cement 50kg"
+              value={newProductName}
+              onChange={(e) => setNewProductName(e.target.value)}
+              className="w-full text-sm p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">Price in Naira (₦)</label>
+              <input
+                type="number"
+                step="any"
+                min="0"
+                required
+                placeholder="e.g. 8500"
+                value={newProductPriceNaira}
+                onChange={(e) => setNewProductPriceNaira(e.target.value)}
+                className="w-full text-sm p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">Stock Units</label>
+              <input
+                type="number"
+                min="0"
+                required
+                placeholder="e.g. 50"
+                value={newProductStock}
+                onChange={(e) => setNewProductStock(e.target.value)}
+                className="w-full text-sm p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" size="md" onClick={() => setIsAddProductOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" size="md">
+              Save to Catalog
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ------------------------------------------------------------------- */}
+      {/* Modal: Receipt Confirmation */}
+      {/* ------------------------------------------------------------------- */}
+      {receiptData && (
+        <Modal
+          isOpen={!!receiptData}
+          onClose={() => setReceiptData(null)}
+          title="✓ Sale Finalized Successfully"
+          subtitle={`Ref: ${receiptData.saleId.slice(0, 8).toUpperCase()}`}
+          maxWidth="sm"
+        >
+          <div className="space-y-4 text-sm">
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex justify-between text-xs text-slate-500">
+                <span>Customer:</span>
+                <span className="font-bold text-slate-900">{receiptData.customerName}</span>
+              </div>
+              <div className="flex justify-between text-xs text-slate-500">
+                <span>Items:</span>
+                <span className="font-semibold text-slate-700">{receiptData.items.length} product(s)</span>
+              </div>
+              <div className="flex justify-between text-xs text-slate-500 pt-1 border-t border-slate-200">
+                <span>Total Amount:</span>
+                <span className="font-black text-slate-900">{formatNaira(receiptData.totalKobo)}</span>
+              </div>
+              <div className="flex justify-between text-xs text-slate-500">
+                <span>Amount Paid:</span>
+                <span className="font-bold text-emerald-700">{formatNaira(receiptData.amountPaidKobo)}</span>
+              </div>
+              {receiptData.balanceKobo > 0 && (
+                <div className="flex justify-between text-xs text-rose-600 font-bold pt-1 border-t border-rose-100">
+                  <span>Balance (Added to Debt):</span>
+                  <span>{formatNaira(receiptData.balanceKobo)}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="md"
+                className="flex-1"
+                onClick={() => window.print()}
+              >
+                Print Receipt
+              </Button>
+              <Button
+                variant="primary"
+                size="md"
+                className="flex-1"
+                onClick={() => setReceiptData(null)}
+              >
+                New Sale
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
