@@ -180,6 +180,7 @@ Conforms strictly to Section 4.3 of the Phase 4 Architecture Plan:
   - Safe release via Lua script ensures a request releases only its own lock.
   - Concurrent requests presenting the same active $R_1$ immediately receive `409 Conflict` (`CONCURRENT_REFRESH_IN_PROGRESS`) without consuming the token or revoking the family.
   - If Redis is unavailable, fails safely with `503 Service Unavailable` without consuming $R_1$.
+  - **Lease Duration & Absence of Automatic Renewal:** The rotation lock is acquired with a fixed 5,000ms lease without background heartbeat renewal. Because rotation completes in < 50ms under normal conditions, the 5,000ms window provides ample headroom. If an operation stalls beyond 5,000ms, the lease expires safely; the MongoDB conditional update (`status: 'active'`) serves as the definitive atomic concurrency guard to ensure only one transaction commits. While `renewRotationLock()` is implemented and verified on the replay cache service as a general utility, `rotateRefreshToken()` intentionally relies on the fixed 5-second lease and the authoritative MongoDB conditional status check.
 
 ### 2.16 Atomic Replay Cache Compare-and-Delete (Lua Script)
 - **Module:** `server/src/services/replayCacheService.js` (`deleteCachedResponseIfMatches`)
@@ -194,34 +195,49 @@ Conforms strictly to Section 4.3 of the Phase 4 Architecture Plan:
   - `replayCache.ping()` strictly requires a valid `'PONG'` response; `false`, `null`, unexpected values, or timeouts throw sanitized `REDIS_READINESS_FAILED`.
   - Failures during startup (Mongo connection, HTTP listen) trigger complete cleanup of opened Redis, MongoDB, and server handles.
 
+### 2.18 Ambiguous MongoDB Commit Recovery Invariant (`UnknownTransactionCommitResult`)
+- **Module:** `server/src/services/refreshTokenService.js` (`MongooseRefreshTokenStore`, `InMemoryRefreshTokenStore`, `RefreshTokenService`, `authSessionController`)
+- **Specification:**
+  - In MongoDB transactions, an exhausted `UnknownTransactionCommitResult` indicates network disconnection during commit acknowledgment. It must **never** be treated as a confirmed rollback.
+  - If all 3 commit retries are exhausted, the outcome is classified as ambiguous.
+  - `session.abortTransaction()` is **not** called (cannot reverse an unknown/committed transaction).
+  - `onRollbackHook` is **not** called, preserving the encrypted successor $R_2$ response in the replay cache.
+  - The MongoDB session is ended safely, and a structured `RefreshTokenError` is thrown with code `MONGODB_COMMIT_OUTCOME_UNKNOWN` and HTTP 503 status.
+  - The HTTP refresh controller responds with HTTP 503 and preserves the refresh-token cookie (does not clear it).
+  - **Recovery Invariants:**
+    - **Scenario A (Commit actually succeeded in DB):** $R_1$ is consumed and $R_2$ exists. When the client retries with $R_1$, the server queries DB, observes $R_1$ is `consumed`, queries the replay cache, and returns the intact $R_2$ with `isReplay: true`.
+    - **Scenario B (Commit did not succeed in DB):** $R_1$ remains `active` and $R_2$ does not exist. When the client retries with $R_1$, the server queries DB, observes $R_1$ is `active`, enters normal rotation (Case A, ignoring cache), and overwrites the stale cache entry with the new rotation's successor.
+  - Confirmed failures (before commit) continue to abort transactions and execute `onRollbackHook` for targeted cache cleanup.
+
 ---
 
 ## 3. Verification Evidence by Category
 
 ### A. Vitest Suite Results
-- **Total Test Files:** 14 passed (14)
-- **Total Tests:** 236 passed (236)
+- **Total Test Files:** 15 passed (15)
+- **Total Tests:** 246 passed (246)
 - **Test File Breakdown:**
-  1. `src/test/stage_4_1b_concurrency_readiness.test.js`: 12 passed (distributed locking, Lua atomic delete, strict ping, pre-Redis Mongo validation, resource cleanup)
-  2. `src/test/stage_4_1b_production_reliability.test.js`: 21 passed (DI enforcement, secret redaction, MongoDB URI requirement, session lifecycle, replay abort isolation)
-  3. `src/test/stage_4_1b_final_remediation.test.js`: 18 passed (production bootstrap, route retirement, transaction retry)
-  4. `src/test/auth_refresh_remediation.test.js`: 25 passed (atomic rotation, Redis clustering, signing fail-closed, logout reliability)
-  5. `src/test/auth_refresh_lifecycle.test.js`: 37 passed (Stage 4.1B lifecycle and concurrency suite)
-  6. `src/test/auth_foundations.test.js`: 61 passed (Stage 4.1A Argon2id & RS256 token suite)
-  7. `src/test/mongoose_target_schemas.test.js`: 8 passed (target schema index verification)
-  8. `src/test/migration_architecture.test.js`: 10 passed
-  9. `src/test/debt_reconciliation.test.js`: 10 passed
-  10. `src/test/inventory_domain.test.js`: 17 passed
-  11. `src/test/dexie_databases.test.js`: 7 passed
-  12. `src/test/onboarding.test.jsx`: 4 passed
-  13. `src/test/stock_movement_safeguard.test.js`: 5 passed
-  14. `src/test/smoke.test.js`: 1 passed
+  1. `src/test/stage_4_1b_ambiguous_commit.test.js`: 10 passed (exhausted UnknownTransactionCommitResult isolation, Mongoose adapter boundaries, Scenario A recovery, Scenario B cache overwrite, confirmed abort cleanup, transient retries, HTTP 503 cookie preservation)
+  2. `src/test/stage_4_1b_concurrency_readiness.test.js`: 12 passed (distributed locking, Lua atomic delete, strict ping, pre-Redis Mongo validation, resource cleanup)
+  3. `src/test/stage_4_1b_production_reliability.test.js`: 21 passed (DI enforcement, secret redaction, MongoDB URI requirement, session lifecycle, replay abort isolation)
+  4. `src/test/stage_4_1b_final_remediation.test.js`: 18 passed (production bootstrap, route retirement, transaction retry)
+  5. `src/test/auth_refresh_remediation.test.js`: 25 passed (atomic rotation, Redis clustering, signing fail-closed, logout reliability)
+  6. `src/test/auth_refresh_lifecycle.test.js`: 37 passed (Stage 4.1B lifecycle and concurrency suite)
+  7. `src/test/auth_foundations.test.js`: 61 passed (Stage 4.1A Argon2id & RS256 token suite)
+  8. `src/test/mongoose_target_schemas.test.js`: 8 passed (target schema index verification)
+  9. `src/test/migration_architecture.test.js`: 10 passed
+  10. `src/test/debt_reconciliation.test.js`: 10 passed
+  11. `src/test/inventory_domain.test.js`: 17 passed
+  12. `src/test/dexie_databases.test.js`: 7 passed
+  13. `src/test/onboarding.test.jsx`: 4 passed
+  14. `src/test/stock_movement_safeguard.test.js`: 5 passed
+  15. `src/test/smoke.test.js`: 1 passed
 
 ### B. Verification Category Matrix
 
 | Verification Category | Execution Status | Evidence / Notes |
 |---|---|---|
-| **Unit Tests** | **PASSED** | 236 passing tests covering distributed locking, Lua atomic delete, Argon2id, RS256 claims, AES-256-GCM authenticated encryption, CSRF headers, cookies, DI guards, redaction, and session cleanup. |
+| **Unit Tests** | **PASSED** | 246 passing tests covering ambiguous commit outcome recovery, distributed locking, Lua atomic delete, Argon2id, RS256 claims, AES-256-GCM authenticated encryption, CSRF headers, cookies, DI guards, redaction, and session cleanup. |
 | **Mocked Infrastructure Tests** | **PASSED** | Multi-instance Redis mock and transactional store adapter verify cluster sharing, transaction retry, rollback, and race conditions. |
 | **Real MongoDB Replica-Set Integration** | **UNVERIFIED LOCALLY** | Standalone local daemon does not support multi-document transactions. Tested via deterministic adapter with topology check; real replica-set tests require staging environment. |
 | **Real Redis Integration** | **UNVERIFIED LOCALLY** | Tested via Redis mock adapter and ioredis interface; real Redis server was not provisioned in local test runner. |

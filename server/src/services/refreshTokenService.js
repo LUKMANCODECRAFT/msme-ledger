@@ -145,6 +145,7 @@ export class MongooseRefreshTokenStore {
       let session = null;
       let transactionStarted = false;
       let sessionEnded = false;
+      let commitOutcomeUnknown = false;
 
       const cleanupSession = async () => {
         if (session && !sessionEnded) {
@@ -231,6 +232,8 @@ export class MongooseRefreshTokenStore {
 
         // 5. Commit transaction atomically with UnknownTransactionCommitResult retry
         let commitAttempt = 0;
+        commitOutcomeUnknown = false;
+
         while (true) {
           try {
             await session.commitTransaction();
@@ -243,6 +246,9 @@ export class MongooseRefreshTokenStore {
             if (isUnknownCommitResult && commitAttempt < maxCommitRetries) {
               continue; // Retry commit operation
             }
+            if (isUnknownCommitResult) {
+              commitOutcomeUnknown = true;
+            }
             throw commitErr;
           }
         }
@@ -253,6 +259,32 @@ export class MongooseRefreshTokenStore {
           successorDoc: createdSuccessor
         };
       } catch (err) {
+        const isUnknownCommit = commitOutcomeUnknown ||
+          err.hasErrorLabel?.('UnknownTransactionCommitResult') ||
+          err.errorLabels?.includes('UnknownTransactionCommitResult');
+
+        if (isUnknownCommit) {
+          // Exhausted UnknownTransactionCommitResult:
+          // Transaction outcome is ambiguous. It may have committed on the primary, but network acknowledgement was lost.
+          // Invariants:
+          // 1. Do NOT call session.abortTransaction() (it cannot reverse an unknown or committed transaction)
+          transactionStarted = false;
+          // 2. Do NOT run onRollbackHook() (preserve encrypted successor in replay cache in case commit succeeded)
+          // 3. Clean up the MongoDB session safely
+          await cleanupSession();
+          // 4. Propagate structured MONGODB_COMMIT_OUTCOME_UNKNOWN error with HTTP 503
+          throw new RefreshTokenError(
+            'MONGODB_COMMIT_OUTCOME_UNKNOWN',
+            503,
+            'Transaction commit status unknown: UnknownTransactionCommitResult. Replay cache preserved for potential recovery.',
+            {
+              originalError: err,
+              errorLabels: ['UnknownTransactionCommitResult'],
+              hasErrorLabel: (label) => label === 'UnknownTransactionCommitResult'
+            }
+          );
+        }
+
         if (transactionStarted && session) {
           await session.abortTransaction().catch(() => {});
           transactionStarted = false;
@@ -295,6 +327,8 @@ export class InMemoryRefreshTokenStore {
     this.failOnRevocation = false;
     this.simulateTransientErrorCount = 0;
     this.simulateUnknownCommitResultCount = 0;
+    this.unknownCommitOutcome = 'commit_aborted'; // 'commit_succeeded' (Scenario A) or 'commit_aborted' (Scenario B)
+    this.unknownCommitActuallyCommitted = null;    // optional boolean override
   }
 
   addUser(user) {
@@ -456,9 +490,14 @@ export class InMemoryRefreshTokenStore {
         try {
           await preCommitHook({ successorDoc: createdSuccessor, consumedDoc: current });
         } catch (hookErr) {
-          // Rollback transaction completely!
+          // Rollback transaction completely! Confirmed failure before commit.
           this.tokens.set(currentTokenId, snapshotCurrent);
           this.tokens.delete(createdSuccessor.id);
+          if (typeof onRollbackHook === 'function') {
+            try {
+              await onRollbackHook();
+            } catch {}
+          }
           throw hookErr;
         }
       }
@@ -472,18 +511,36 @@ export class InMemoryRefreshTokenStore {
             if (commitAttempt < maxCommitRetries) {
               continue; // Retry commit!
             } else {
-              // Retry limit exceeded! Commit outcome is uncertain.
-              this.tokens.set(currentTokenId, snapshotCurrent);
-              this.tokens.delete(createdSuccessor.id);
-              if (typeof onRollbackHook === 'function') {
-                try {
-                  await onRollbackHook();
-                } catch {}
+              // Retry limit exceeded! Commit outcome is ambiguous.
+              const isScenarioA = (this.unknownCommitActuallyCommitted === true) ||
+                                  (this.unknownCommitOutcome === 'commit_succeeded') ||
+                                  (this.unknownCommitOutcome === 'scenario_a');
+
+              if (isScenarioA) {
+                // Scenario A — Commit actually succeeded, acknowledgement lost
+                // - R1 remains consumed (already staged on this.tokens)
+                // - R2 exists and is active (already staged on this.tokens)
+                // - onRollbackHook is NOT called!
+                // - Replay cache entry remains intact
+              } else {
+                // Scenario B — Commit did not succeed
+                // - R1 remains active
+                this.tokens.set(currentTokenId, snapshotCurrent);
+                // - R2 does not exist
+                this.tokens.delete(createdSuccessor.id);
+                // - onRollbackHook is NOT called! (Ambiguous commit outcome must never be treated as confirmed rollback)
               }
-              const commitErr = new Error('UnknownTransactionCommitResult: network dropped during commit.');
-              commitErr.errorLabels = ['UnknownTransactionCommitResult'];
-              commitErr.hasErrorLabel = (label) => label === 'UnknownTransactionCommitResult';
-              throw commitErr;
+
+              const unknownCommitErr = new RefreshTokenError(
+                'MONGODB_COMMIT_OUTCOME_UNKNOWN',
+                503,
+                'Transaction commit status unknown: UnknownTransactionCommitResult. Replay cache preserved for potential recovery.',
+                {
+                  errorLabels: ['UnknownTransactionCommitResult'],
+                  hasErrorLabel: (label) => label === 'UnknownTransactionCommitResult'
+                }
+              );
+              throw unknownCommitErr;
             }
           } else {
             commitConfirmed = true;

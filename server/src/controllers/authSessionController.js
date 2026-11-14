@@ -145,6 +145,16 @@ export function createAuthSessionController(tokenService) {
           });
         }
 
+        if (err.code === 'MONGODB_COMMIT_OUTCOME_UNKNOWN') {
+          // Ambiguous commit: do NOT clear cookie because R1 may be consumed (allowing replay recovery)
+          // or active (allowing retry).
+          return res.status(503).json({
+            success: false,
+            error: err.code,
+            message: err.message
+          });
+        }
+
         // On authentication failures (expired, compromised, revoked, delivery failure), clear cookie
         res.clearCookie(REFRESH_COOKIE_NAME, clearOptions);
 
