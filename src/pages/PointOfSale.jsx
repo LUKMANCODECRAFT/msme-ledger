@@ -17,6 +17,7 @@ export default function PointOfSale() {
   const [cart, setCart] = useState({}); // Shape: { [inventoryId]: { item, quantity } }
   const [amountPaidNaira, setAmountPaidNaira] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash'); // 'cash' | 'bank_transfer' | 'pos'
+  const [allowCredit, setAllowCredit] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [productSearch, setProductSearch] = useState('');
 
@@ -181,9 +182,14 @@ export default function PointOfSale() {
       return;
     }
 
+    const tenderKobo = Math.floor(parsedPaidNaira * 100);
+    if (tenderKobo < totalAmountKobo && !allowCredit) {
+      alert('Payment is less than total payable. Please check "Allow credit sale" to confirm recording the remaining balance as customer debt.');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      const amountPaidKobo = Math.floor(parsedPaidNaira * 100);
       const itemsPayload = cartItems.map(c => ({
         inventoryId: c.item.id,
         quantity: c.quantity,
@@ -193,11 +199,15 @@ export default function PointOfSale() {
       const saleId = await recordSale({
         customerId: selectedCustomerId,
         items: itemsPayload,
-        amountPaid: amountPaidKobo
+        amountTendered: tenderKobo,
+        paymentMethod,
+        allowCredit
       });
 
       const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
-      const balanceKobo = Math.max(0, totalAmountKobo - amountPaidKobo);
+      const amountAppliedKobo = Math.min(totalAmountKobo, tenderKobo);
+      const changeReturnedKobo = paymentMethod === 'cash' ? Math.max(0, tenderKobo - totalAmountKobo) : 0;
+      const balanceKobo = totalAmountKobo - amountAppliedKobo;
 
       // Show receipt modal
       setReceiptData({
@@ -205,7 +215,10 @@ export default function PointOfSale() {
         customerName: selectedCustomer?.name || 'Customer',
         items: [...cartItems],
         totalKobo: totalAmountKobo,
-        amountPaidKobo,
+        amountTenderedKobo: tenderKobo,
+        amountPaidKobo: amountAppliedKobo,
+        changeReturnedKobo,
+        paymentMethod,
         balanceKobo,
         date: new Date()
       });
@@ -213,6 +226,7 @@ export default function PointOfSale() {
       // Reset cart and inputs
       setCart({});
       setAmountPaidNaira('');
+      setAllowCredit(false);
       setSelectedCustomerId('');
       setCustomerSearch('');
     } catch (error) {
@@ -493,21 +507,43 @@ export default function PointOfSale() {
 
             {/* Change or Debt Calculation preview */}
             {amountPaidNaira !== '' && !isNaN(parseFloat(amountPaidNaira)) && (
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs flex justify-between items-center">
-                {parseFloat(amountPaidNaira) >= totalAmountNaira ? (
-                  <>
-                    <span className="font-semibold text-slate-600">Change Due:</span>
-                    <span className="font-bold text-emerald-700">
-                      ₦{(parseFloat(amountPaidNaira) - totalAmountNaira).toFixed(2)}
+              <div className="space-y-2">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs flex justify-between items-center">
+                  {parseFloat(amountPaidNaira) >= totalAmountNaira ? (
+                    <>
+                      <span className="font-semibold text-slate-600">
+                        {paymentMethod === 'cash' ? 'Change Due (Cash):' : 'Settlement Status:'}
+                      </span>
+                      <span className="font-bold text-emerald-700">
+                        {paymentMethod === 'cash'
+                          ? `₦${(parseFloat(amountPaidNaira) - totalAmountNaira).toFixed(2)}`
+                          : 'Paid in Full (Exact Settlement)'}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-semibold text-rose-600">Credit Shortfall (Debt):</span>
+                      <span className="font-bold text-rose-600">
+                        ₦{(totalAmountNaira - parseFloat(amountPaidNaira)).toFixed(2)}
+                      </span>
+                    </>
+                  )}
+                </div>
+
+                {/* Explicit Credit Authorization Checkbox */}
+                {parseFloat(amountPaidNaira) < totalAmountNaira && (
+                  <label className="flex items-center gap-2 p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-xs cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      id="allowCreditCheckbox"
+                      checked={allowCredit}
+                      onChange={(e) => setAllowCredit(e.target.checked)}
+                      className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+                    />
+                    <span className="font-semibold text-rose-900">
+                      Allow credit sale (record shortfall as customer debt)
                     </span>
-                  </>
-                ) : (
-                  <>
-                    <span className="font-semibold text-rose-600">Credit Created (Debt):</span>
-                    <span className="font-bold text-rose-600">
-                      ₦{(totalAmountNaira - parseFloat(amountPaidNaira)).toFixed(2)}
-                    </span>
-                  </>
+                  </label>
                 )}
               </div>
             )}
@@ -672,17 +708,31 @@ export default function PointOfSale() {
                 <span>Items:</span>
                 <span className="font-semibold text-slate-700">{receiptData.items.length} product(s)</span>
               </div>
+              <div className="flex justify-between text-xs text-slate-500">
+                <span>Payment Channel:</span>
+                <span className="font-bold text-slate-900 uppercase">{receiptData.paymentMethod?.replace('_', ' ')}</span>
+              </div>
               <div className="flex justify-between text-xs text-slate-500 pt-1 border-t border-slate-200">
                 <span>Total Amount:</span>
                 <span className="font-black text-slate-900">{formatNaira(receiptData.totalKobo)}</span>
               </div>
               <div className="flex justify-between text-xs text-slate-500">
-                <span>Amount Paid:</span>
+                <span>Amount Tendered:</span>
+                <span className="font-semibold text-slate-700">{formatNaira(receiptData.amountTenderedKobo)}</span>
+              </div>
+              <div className="flex justify-between text-xs text-slate-500">
+                <span>Amount Applied (Collected):</span>
                 <span className="font-bold text-emerald-700">{formatNaira(receiptData.amountPaidKobo)}</span>
               </div>
+              {receiptData.changeReturnedKobo > 0 && (
+                <div className="flex justify-between text-xs text-emerald-700 font-bold">
+                  <span>Change Returned:</span>
+                  <span>{formatNaira(receiptData.changeReturnedKobo)}</span>
+                </div>
+              )}
               {receiptData.balanceKobo > 0 && (
                 <div className="flex justify-between text-xs text-rose-600 font-bold pt-1 border-t border-rose-100">
-                  <span>Balance (Added to Debt):</span>
+                  <span>Credit Balance (Customer Debt):</span>
                   <span>{formatNaira(receiptData.balanceKobo)}</span>
                 </div>
               )}

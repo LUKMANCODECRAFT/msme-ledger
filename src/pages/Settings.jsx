@@ -3,18 +3,16 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { msme_ledger_db, sb_db, usePendingSyncCount } from '../config/db.js';
 import { pushPendingData } from '../services/syncService.js';
 import { getShopId } from '../utils/shopIdentity.js';
-import { formatDateShort } from '../utils/formatters.js';
 import Button from '../components/common/Button.jsx';
 
 export default function Settings() {
   const [shopNameInput, setShopNameInput] = useState(() => localStorage.getItem('shopName') || '');
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState(null);
 
   const pendingCount = usePendingSyncCount();
   const shopId = getShopId();
-  const trialEndsAtStr = localStorage.getItem('trialEndsAt');
-  const trialEndsDate = trialEndsAtStr ? new Date(trialEndsAtStr) : null;
   const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
 
   // Local table counts
@@ -35,17 +33,46 @@ export default function Settings() {
 
   const handleManualSync = async () => {
     setIsSyncing(true);
+    setSyncFeedback(null);
     try {
-      await pushPendingData();
-      alert('Cloud synchronization completed successfully.');
+      const result = await pushPendingData();
+      if (result.status === 'no_pending') {
+        setSyncFeedback({
+          type: 'no_pending',
+          title: 'No Pending Records',
+          message: 'All local records are stored on this device. No records are awaiting synchronization.'
+        });
+      } else if (result.status === 'partial') {
+        setSyncFeedback({
+          type: 'partial',
+          title: 'Partial Synchronization',
+          message: result.message
+        });
+      } else if (result.status === 'success') {
+        setSyncFeedback({
+          type: 'success',
+          title: 'Synchronization Succeeded',
+          message: result.message
+        });
+      }
     } catch (err) {
-      alert(`Sync failed: ${err.message}`);
+      if (err.code === 'SYNC_UNAVAILABLE' || err.details?.status === 410) {
+        setSyncFeedback({
+          type: 'unavailable',
+          title: 'Cloud Synchronization Unavailable',
+          message: 'The cloud synchronization endpoint has been retired (HTTP 410) and authenticated v2 cloud synchronization is not yet connected. All pending records remain safely stored locally on this device.'
+        });
+      } else {
+        setSyncFeedback({
+          type: 'failed',
+          title: 'Synchronization Failed',
+          message: err.message
+        });
+      }
     } finally {
       setIsSyncing(false);
     }
   };
-
-  const whatsappPaymentUrl = `https://wa.me/2349132555203?text=${encodeURIComponent(`Hello LCC Admin! I am renewing subscription for Shop: ${shopNameInput}. My Shop ID is: ${shopId}`)}`;
 
   return (
     <div className="space-y-6 max-w-4xl animate-in fade-in duration-200">
@@ -169,6 +196,26 @@ export default function Settings() {
             Trigger Sync Now
           </Button>
         </div>
+
+        {/* Sync Feedback Result Banner */}
+        {syncFeedback && (
+          <div
+            className={`p-4 rounded-xl border text-xs space-y-1 animate-in fade-in ${
+              syncFeedback.type === 'success'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                : syncFeedback.type === 'partial'
+                ? 'bg-amber-50 border-amber-200 text-amber-800'
+                : syncFeedback.type === 'unavailable'
+                ? 'bg-amber-50/70 border-amber-300 text-amber-900'
+                : syncFeedback.type === 'no_pending'
+                ? 'bg-slate-50 border-slate-200 text-slate-700'
+                : 'bg-rose-50 border-rose-200 text-rose-800'
+            }`}
+          >
+            <p className="font-bold">{syncFeedback.title}</p>
+            <p className="leading-relaxed">{syncFeedback.message}</p>
+          </div>
+        )}
       </div>
 
       {/* ------------------------------------------------------------------- */}
@@ -177,11 +224,11 @@ export default function Settings() {
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6 space-y-4">
         <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
           <div>
-            <h4 className="text-base font-bold text-slate-900 tracking-tight">Device License & Subscription</h4>
-            <p className="text-xs text-slate-500">Offline trial status and renewal details</p>
+            <h4 className="text-base font-bold text-slate-900 tracking-tight">Device Identity & Subscription</h4>
+            <p className="text-xs text-slate-500">Local device identification and billing status</p>
           </div>
-          <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200">
-            30-Day Trial Active
+          <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
+            Subscription Management Unconnected
           </span>
         </div>
 
@@ -192,27 +239,22 @@ export default function Settings() {
           </div>
 
           <div className="flex justify-between py-1 border-b border-slate-100">
-            <span className="font-semibold text-slate-500">Trial Valid Until:</span>
-            <span className="font-bold text-slate-900">
-              {trialEndsDate ? formatDateShort(trialEndsDate) : '30 Days from setup'}
-            </span>
+            <span className="font-semibold text-slate-500">Subscription Status:</span>
+            <span className="font-bold text-slate-700">Offline Evaluation (Billing Not Connected)</span>
           </div>
 
           <div className="flex justify-between py-1 border-b border-slate-100">
-            <span className="font-semibold text-slate-500">License Renewal Rate:</span>
-            <span className="font-bold text-emerald-700">1,500 NGN / month</span>
+            <span className="font-semibold text-slate-500">Commercial Pricing:</span>
+            <span className="font-bold text-slate-500">Pending owner authorization</span>
           </div>
         </div>
 
-        <div className="pt-2">
-          <a
-            href={whatsappPaymentUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 text-xs font-bold text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-300 px-4 py-2.5 rounded-xl transition-colors shadow-2xs"
-          >
-            <span>Renew License via WhatsApp (1,500 NGN) →</span>
-          </a>
+        <div className="pt-2 text-xs text-slate-500 bg-slate-50 p-3 rounded-xl border border-slate-200">
+          <p className="font-semibold text-slate-700">Subscription & Entitlements Notice:</p>
+          <p className="mt-0.5">
+            Commercial subscription plans, pricing tiers, and online billing are pending backend integration.
+            This installation operates in local-first retail mode without hardcoded price assumptions.
+          </p>
         </div>
       </div>
 
@@ -221,7 +263,7 @@ export default function Settings() {
       {/* ------------------------------------------------------------------- */}
       <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 text-xs text-slate-600 space-y-1.5">
         <p className="font-bold text-slate-800">
-          Architecture Milestone: Frontend Redesign (FE-01)
+          Architecture Milestone: Frontend Redesign & Remediation (FE-01R)
         </p>
         <p className="leading-relaxed text-slate-500">
           This installation operates in local-first retail mode with automatic Dexie persistence.

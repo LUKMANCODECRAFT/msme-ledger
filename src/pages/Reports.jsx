@@ -114,9 +114,9 @@ export default function Reports() {
         />
 
         <StatCard
-          title="Net Cash Position"
+          title="Net Operating Cash Flow (Recorded)"
           value={formatNaira(report.netCashPositionKobo)}
-          subtitle="Cash Inflow less recorded expenses"
+          subtitle="Recorded cash inflows less recorded expenses"
           accentColor={report.netCashPositionKobo >= 0 ? 'emerald' : 'rose'}
         />
       </div>
@@ -223,6 +223,8 @@ export default function Reports() {
               <li>Verified Gross Profit is calculated strictly where inventory unit costs are authenticated via verified purchase records.</li>
               <li><strong>Unknown historical costs are never assumed or calculated as zero.</strong></li>
               <li>Credit repayments are treated as debt recovery, not duplicate new sales revenue.</li>
+              <li>Cash collected on sales strictly excludes change returned to customers.</li>
+              <li>Operating cash flow represents recorded transactions on this device and does not reflect a complete balance-sheet cash position, opening cash balances, or unrecorded cash transactions.</li>
               <li>Monetary balances are stored and computed strictly as 64-bit integer kobo.</li>
             </ul>
           </div>

@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { msme_ledger_db } from '../config/db.js';
 import { formatNaira, formatDate, formatPhoneDisplay, generateWhatsAppLink } from '../utils/formatters.js';
+import { recordCustomerRepayment, clearCustomerDebt } from '../services/ledgerService.js';
 import Button from '../components/common/Button.jsx';
 import Modal from '../components/common/Modal.jsx';
 import StatCard from '../components/common/StatCard.jsx';
@@ -80,24 +81,11 @@ export default function CreditBook() {
 
     setIsSubmitting(true);
     try {
-      const newBalanceKobo = currentDebtKobo - paymentKobo;
-
-      // 1. Update customer debt atomically
-      await msme_ledger_db.customers.update(selectedDebtor.id, {
-        totalDebt: newBalanceKobo,
-        updatedAt: new Date(),
-        sync_status: 'pending'
-      });
-
-      // 2. Insert repayment event in transactions table
-      // Invariant: Repayments are recorded as PAYMENT transactions and are NOT counted as new sales!
-      await msme_ledger_db.transactions.add({
-        id: crypto.randomUUID(),
+      await recordCustomerRepayment({
         customerId: selectedDebtor.id,
-        type: 'PAYMENT',
-        amount: paymentKobo,
-        date: new Date().toISOString(),
-        sync_status: 'pending'
+        amountKobo: paymentKobo,
+        paymentMethod: 'cash',
+        notes: `Customer debt repayment from Credit Book`
       });
 
       setSelectedDebtor(null);
@@ -113,20 +101,10 @@ export default function CreditBook() {
   const handleClearDebt = async (debtor) => {
     if (window.confirm(`Has "${debtor.name}" fully cleared their debt of ${formatNaira(debtor.totalDebt)}?`)) {
       try {
-        await msme_ledger_db.customers.update(debtor.id, {
-          totalDebt: 0,
-          updatedAt: new Date(),
-          sync_status: 'pending'
-        });
-
-        // Record repayment transaction for the remaining balance
-        await msme_ledger_db.transactions.add({
-          id: crypto.randomUUID(),
+        await clearCustomerDebt({
           customerId: debtor.id,
-          type: 'PAYMENT',
-          amount: debtor.totalDebt,
-          date: new Date().toISOString(),
-          sync_status: 'pending'
+          paymentMethod: 'cash',
+          notes: 'Full debt settlement via Credit Book'
         });
       } catch (err) {
         alert(`Failed to clear debt: ${err.message}`);

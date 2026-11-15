@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { msme_ledger_db } from '../config/db.js';
-import { createCustomer } from '../services/ledgerService.js';
+import { createCustomer, recordCustomerRepayment } from '../services/ledgerService.js';
 import { formatNaira, formatPhoneDisplay, generateWhatsAppLink } from '../utils/formatters.js';
 import Button from '../components/common/Button.jsx';
 import Modal from '../components/common/Modal.jsx';
@@ -93,23 +93,11 @@ export default function Customers({ onNavigate }) {
     }
 
     try {
-      const newBalanceKobo = currentDebtKobo - paymentKobo;
-
-      // Update customer totalDebt atomically
-      await msme_ledger_db.customers.update(selectedDebtor.id, {
-        totalDebt: newBalanceKobo,
-        updatedAt: new Date(),
-        sync_status: 'pending'
-      });
-
-      // Record repayment transaction in transactions table (strictly NOT recorded as a sale!)
-      await msme_ledger_db.transactions.add({
-        id: crypto.randomUUID(),
+      await recordCustomerRepayment({
         customerId: selectedDebtor.id,
-        type: 'PAYMENT',
-        amount: paymentKobo,
-        date: new Date().toISOString(),
-        sync_status: 'pending'
+        amountKobo: paymentKobo,
+        paymentMethod: 'cash',
+        notes: 'Customer debt repayment from Customer Directory'
       });
 
       setSelectedDebtor(null);

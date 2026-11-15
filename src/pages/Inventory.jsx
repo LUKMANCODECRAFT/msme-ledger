@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { msme_ledger_db, sb_db } from '../config/db.js';
 import { addInventory } from '../services/ledgerService.js';
+import { getShopId } from '../utils/shopIdentity.js';
 import { formatNaira, formatNumber } from '../utils/formatters.js';
 import Button from '../components/common/Button.jsx';
 import Modal from '../components/common/Modal.jsx';
@@ -84,9 +85,12 @@ export default function Inventory() {
       try {
         if (sb_db.products) {
           const costKobo = hasVerifiedCost && unitCostNaira ? Math.floor(parseFloat(unitCostNaira) * 100) : null;
+          const businessId = getShopId();
           await sb_db.products.put({
             id: inventoryId,
+            businessId,
             name: newProductName.trim(),
+            sku: newProductSku ? newProductSku.trim() : undefined,
             sellingPrice: priceKobo,
             hasVerifiedCost: Boolean(hasVerifiedCost && costKobo),
             verifiedUnitCost: costKobo,
@@ -95,12 +99,13 @@ export default function Inventory() {
             updatedAt: new Date()
           });
         }
-      } catch {
-        // Fallback gracefully
+      } catch (targetErr) {
+        console.warn('Target store product write encountered issue:', targetErr.message);
       }
 
       // Reset
       setNewProductName('');
+      setNewProductSku('');
       setNewProductPriceNaira('');
       setNewProductStock('');
       setHasVerifiedCost(false);
@@ -142,8 +147,10 @@ export default function Inventory() {
       // Also record stock movement in sb_db if available
       try {
         if (sb_db.stockMovements) {
+          const businessId = getShopId();
           await sb_db.stockMovements.add({
             id: crypto.randomUUID(),
+            businessId,
             productId: selectedItemForAdjust.id,
             movementType: adjustmentType === 'ADD' ? 'RESTOCK' : 'ADJUSTMENT_DAMAGE',
             quantityDelta: adjustmentType === 'ADD' ? delta : -delta,
@@ -151,8 +158,8 @@ export default function Inventory() {
             sync_status: 'pending'
           });
         }
-      } catch {
-        // Safe fallback
+      } catch (movementErr) {
+        console.warn('Target store stock movement write encountered issue:', movementErr.message);
       }
 
       setSelectedItemForAdjust(null);

@@ -107,8 +107,16 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
   const handleSyncClick = () => {
     if (pendingCount > 0) {
       pushPendingData()
-        .then(() => alert('Manual cloud sync initiated. Offline records queued.'))
-        .catch(err => alert(`Sync failed: ${err.message}`));
+        .then((res) => {
+          if (res?.status === 'no_pending') {
+            alert('All records are already stored locally and clean.');
+          } else if (res?.status === 'partial') {
+            alert(res.message);
+          } else {
+            alert(res?.message || 'Synchronization completed.');
+          }
+        })
+        .catch(err => alert(err.message));
     }
   };
 
@@ -223,11 +231,11 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
               onClick={handleSyncClick}
               className="text-2xs font-bold px-2 py-1 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30"
             >
-              Sync ({pendingCount})
+              Pending ({pendingCount})
             </button>
           ) : (
-            <span className="text-2xs font-semibold px-2 py-0.5 rounded text-emerald-400 bg-emerald-950/60 border border-emerald-800/60">
-              Synced
+            <span className="text-2xs font-semibold px-2 py-0.5 rounded text-slate-300 bg-slate-800 border border-slate-700">
+              Local Clean
             </span>
           )}
         </div>
@@ -324,15 +332,15 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
                 type="button"
                 onClick={handleSyncClick}
                 className="hidden sm:inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-50 border border-amber-300 px-3 py-2 rounded-lg hover:bg-amber-100 transition-colors shadow-2xs"
-                title="Click to force a manual sync to backend"
+                title="Click to check sync status"
               >
                 <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                <span>Sync Queue: {pendingCount}</span>
+                <span>Pending Sync: {pendingCount}</span>
               </button>
             ) : (
-              <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-lg shadow-2xs">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                <span>Cloud Synced</span>
+              <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 bg-slate-100 border border-slate-200 px-3 py-2 rounded-lg shadow-2xs">
+                <span className="w-2 h-2 rounded-full bg-slate-400" />
+                <span>Local Storage Clean</span>
               </span>
             )}
           </div>

@@ -238,7 +238,16 @@ export default function BusinessBook({ onNavigate }) {
                       {entry.reference}
                     </td>
                     <td className="py-3.5 px-4 text-right font-black text-emerald-600 whitespace-nowrap">
-                      {entry.isInflow ? formatNaira(entry.totalAmountKobo) : '—'}
+                      {entry.isInflow ? (
+                        <div>
+                          <span>{formatNaira(entry.amountPaidKobo)}</span>
+                          {entry.balanceKobo > 0 && (
+                            <span className="block text-2xs font-semibold text-rose-500">
+                              (Credit: {formatNaira(entry.balanceKobo)})
+                            </span>
+                          )}
+                        </div>
+                      ) : '—'}
                     </td>
                     <td className="py-3.5 px-4 text-right font-black text-slate-700 whitespace-nowrap">
                       {!entry.isInflow ? formatNaira(entry.totalAmountKobo) : '—'}

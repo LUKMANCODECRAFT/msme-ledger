@@ -9,7 +9,7 @@ export function useBackgroundSync() {
   useEffect(() => {
     // Native event listener handler
     const handleOnline = () => {
-      pushPendingData();
+      pushPendingData().catch(() => {});
     };
 
     // Attach native event listener for when the network drops and reconnects
@@ -17,7 +17,7 @@ export function useBackgroundSync() {
 
     // Initial check when the component mounts
     if (navigator.onLine) {
-      pushPendingData();
+      pushPendingData().catch(() => {});
     }
 
     // Set interval to poll every 3 minutes (180000ms)
@@ -25,7 +25,7 @@ export function useBackgroundSync() {
     const intervalId = setInterval(() => {
       // ONLY trigger the sync if the browser explicitly reports it is online
       if (navigator.onLine) {
-        pushPendingData();
+        pushPendingData().catch(() => {});
       }
     }, SYNC_INTERVAL_MS);
 

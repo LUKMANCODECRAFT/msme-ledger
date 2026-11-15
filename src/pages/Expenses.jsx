@@ -2,23 +2,12 @@ import React, { useState, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { sb_db } from '../config/db.js';
 import { formatNaira, formatDate } from '../utils/formatters.js';
+import { recordExpense, EXPENSE_CATEGORIES } from '../services/expenseService.js';
 import Button from '../components/common/Button.jsx';
 import Modal from '../components/common/Modal.jsx';
 import StatCard from '../components/common/StatCard.jsx';
 import Badge from '../components/common/Badge.jsx';
 import EmptyState from '../components/common/EmptyState.jsx';
-
-const EXPENSE_CATEGORIES = [
-  'Electricity & Utilities',
-  'Rent & Shop Lease',
-  'Transportation & Logistics',
-  'Staff Wages & Allowances',
-  'Packaging & Supplies',
-  'Equipment Repairs',
-  'Generator Fuel',
-  'Marketing & Signage',
-  'Miscellaneous Overhead'
-];
 
 export default function Expenses() {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -64,19 +53,13 @@ export default function Expenses() {
     setIsSubmitting(true);
     try {
       const amountKobo = Math.floor(parsedNaira * 100);
-      const newExpense = {
-        id: crypto.randomUUID(),
+      await recordExpense({
         category,
-        amount: amountKobo,
-        notes: notes.trim(),
+        amountKobo,
+        notes,
         paymentMethod,
-        expenseDate: new Date(expenseDate),
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        sync_status: 'pending'
-      };
-
-      await sb_db.expenses.add(newExpense);
+        expenseDate
+      });
 
       // Reset form
       setAmountNaira('');

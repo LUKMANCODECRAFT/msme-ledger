@@ -189,17 +189,61 @@ export function getReadOnlyLegacyDb(targetDb = legacy_db) {
 }
 
 /**
- * Custom hook to get the total count of pending sync records across all stores.
+ * Queries all pending sync records across both local databases (msme_ledger_db and sb_db).
+ * Returns total pending count and an itemized breakdown.
+ *
+ * @returns {Promise<{ total: number, breakdown: Record<string, number> }>}
+ */
+export async function getAllPendingSyncCounts() {
+  const [
+    customersPending,
+    inventoryPending,
+    salesPending,
+    transactionsPending,
+    expensesPending,
+    productsPending,
+    stockMovementsPending
+  ] = await Promise.all([
+    msme_ledger_db.customers ? msme_ledger_db.customers.where('sync_status').equals('pending').count().catch(() => 0) : 0,
+    msme_ledger_db.inventory ? msme_ledger_db.inventory.where('sync_status').equals('pending').count().catch(() => 0) : 0,
+    msme_ledger_db.sales ? msme_ledger_db.sales.where('sync_status').equals('pending').count().catch(() => 0) : 0,
+    msme_ledger_db.transactions ? msme_ledger_db.transactions.where('sync_status').equals('pending').count().catch(() => 0) : 0,
+    sb_db.expenses ? sb_db.expenses.where('sync_status').equals('pending').count().catch(() => 0) : 0,
+    sb_db.products ? sb_db.products.where('sync_status').equals('pending').count().catch(() => 0) : 0,
+    sb_db.stockMovements ? sb_db.stockMovements.where('sync_status').equals('pending').count().catch(() => 0) : 0
+  ]);
+
+  const total = customersPending +
+    inventoryPending +
+    salesPending +
+    transactionsPending +
+    expensesPending +
+    productsPending +
+    stockMovementsPending;
+
+  return {
+    total,
+    breakdown: {
+      customers: customersPending,
+      inventory: inventoryPending,
+      sales: salesPending,
+      transactions: transactionsPending,
+      expenses: expensesPending,
+      products: productsPending,
+      stockMovements: stockMovementsPending
+    }
+  };
+}
+
+/**
+ * Custom hook to get the total count of pending sync records across all local stores.
+ * Accounts for customers, inventory, sales, repayments, expenses, products, and stock movements.
+ *
  * @returns {number} Aggregate count of records where sync_status is 'pending'.
  */
 export function usePendingSyncCount() {
   return useLiveQuery(async () => {
-    const [customersPending, inventoryPending, salesPending] = await Promise.all([
-      msme_ledger_db.customers.where('sync_status').equals('pending').count(),
-      msme_ledger_db.inventory.where('sync_status').equals('pending').count(),
-      msme_ledger_db.sales.where('sync_status').equals('pending').count()
-    ]);
-
-    return customersPending + inventoryPending + salesPending;
+    const { total } = await getAllPendingSyncCounts();
+    return total;
   }, [], 0);
 }
