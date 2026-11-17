@@ -158,8 +158,10 @@ export function signAccessToken(params, privateKeyPem, options = {}) {
     sub: sub.trim(),
     email: normalizeEmail(email),
     defaultBusinessId: defaultBusinessId ? defaultBusinessId.trim() : null,
-    token_use: JWT_CONFIG.TOKEN_USE,
-    token_type: JWT_CONFIG.TOKEN_TYPE,
+    sessionVersion: typeof params.sessionVersion === 'number' ? params.sessionVersion : (typeof options.sessionVersion === 'number' ? options.sessionVersion : 1),
+    ...( (params.role || options.role) ? { role: params.role || options.role } : {} ),
+    token_use: options.token_use || JWT_CONFIG.TOKEN_USE,
+    token_type: options.token_type || JWT_CONFIG.TOKEN_TYPE,
     jti,
     iat: nowSeconds,
     exp: expSeconds

@@ -26,6 +26,9 @@ const userSchema = new mongoose.Schema({
   fullName: { type: String, required: true },
   defaultBusinessId: { type: String, default: null },
   isEmailVerified: { type: Boolean, default: false },
+  sessionVersion: { type: Number, default: 1 },
+  failedLoginAttempts: { type: Number, default: 0 },
+  lockoutUntil: { type: Date, default: null },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 }, { versionKey: false, timestamps: true });

@@ -651,7 +651,13 @@ export class RefreshTokenService {
     });
 
     const accessToken = signAccessToken(
-      { sub: userId, email, defaultBusinessId },
+      {
+        sub: userId,
+        email,
+        defaultBusinessId,
+        sessionVersion: params.sessionVersion || 1,
+        role: params.role || 'owner'
+      },
       this.signingKey,
       { kid: this.kid, expiresInSeconds: JWT_CONFIG.MAX_ACCESS_TOKEN_TTL_SECONDS }
     );

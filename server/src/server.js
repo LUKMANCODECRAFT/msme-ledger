@@ -217,7 +217,12 @@ export function createApp(options = {}) {
   // Mount Auth Session Router with explicitly injected service
   const authRouter = createAuthSessionRouter({
     tokenService: options.tokenService,
-    csrfMiddleware: options.csrfMiddleware
+    authService: options.authService,
+    signingKey: options.signingKey,
+    kid: options.kid,
+    rateLimitService: options.rateLimitService,
+    csrfMiddleware: options.csrfMiddleware,
+    authMiddleware: options.authMiddleware
   });
   app.use('/api/v2/auth', authRouter);
 

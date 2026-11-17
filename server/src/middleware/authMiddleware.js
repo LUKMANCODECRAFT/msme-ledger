@@ -64,13 +64,29 @@ export function createAuthMiddleware(publicKeyResolver, options = {}) {
 
       // 4. Attach verified authenticated identity to req.user
       // Invariant: Completely ignore and discard any user/tenant claims from req.body or req.query
-      req.user = Object.freeze({
+      const authenticatedUser = {
         id: payload.sub,
         email: payload.email,
         defaultBusinessId: payload.defaultBusinessId || null,
+        sessionVersion: typeof payload.sessionVersion === 'number' ? payload.sessionVersion : 1,
         tokenUse: payload.token_use,
         tokenType: payload.token_type
-      });
+      };
+      if (payload.role !== undefined) {
+        authenticatedUser.role = payload.role;
+      }
+      req.user = Object.freeze(authenticatedUser);
+
+      // 4.1 Validate session version if validator is provided
+      if (typeof options.validateSessionVersion === 'function') {
+        const isValid = await options.validateSessionVersion(payload.sub, req.user.sessionVersion);
+        if (!isValid) {
+          return res.status(401).json({
+            error: 'SESSION_REVOKED',
+            message: 'Session has been invalidated due to credential or security state changes.'
+          });
+        }
+      }
 
       return next();
     } catch (err) {
