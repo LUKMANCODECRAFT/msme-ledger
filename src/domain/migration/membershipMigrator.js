@@ -218,11 +218,19 @@ export class MembershipMigrator {
       summary.migratedCount++;
     }
 
-    await this.checkpointManager.recordCheckpoint('memberships_expanded', {
-      migratedCount: summary.migratedCount,
-      quarantinedCount: summary.quarantinedCount,
-      skippedCount: summary.skippedCount
-    });
+    if (typeof this.checkpointManager.completeStage === 'function') {
+      await this.checkpointManager.completeStage('memberships_expanded', {
+        migratedCount: summary.migratedCount,
+        quarantinedCount: summary.quarantinedCount,
+        skippedCount: summary.skippedCount
+      });
+    } else if (typeof this.checkpointManager.recordCheckpoint === 'function') {
+      await this.checkpointManager.recordCheckpoint('memberships_expanded', {
+        migratedCount: summary.migratedCount,
+        quarantinedCount: summary.quarantinedCount,
+        skippedCount: summary.skippedCount
+      });
+    }
     summary.stages.push('memberships_expanded');
 
     // ----------------------------------------------------
@@ -260,10 +268,17 @@ export class MembershipMigrator {
       summary.quarantinedCount++;
     }
 
-    await this.checkpointManager.recordCheckpoint('memberships_contracted', {
-      verifiedBusinessCount: distinctBusinessIds.size,
-      missingOwnerCount: missingOwnerBusinesses.length
-    });
+    if (typeof this.checkpointManager.completeStage === 'function') {
+      await this.checkpointManager.completeStage('memberships_contracted', {
+        verifiedBusinessCount: distinctBusinessIds.size,
+        missingOwnerCount: missingOwnerBusinesses.length
+      });
+    } else if (typeof this.checkpointManager.recordCheckpoint === 'function') {
+      await this.checkpointManager.recordCheckpoint('memberships_contracted', {
+        verifiedBusinessCount: distinctBusinessIds.size,
+        missingOwnerCount: missingOwnerBusinesses.length
+      });
+    }
     summary.stages.push('memberships_contracted');
 
     summary.quarantinedRecords = this.quarantineManager.getQuarantined();
