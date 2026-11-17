@@ -1,7 +1,8 @@
 import React, { useEffect } from 'react';
 
 /**
- * Standard Accessible Modal Dialog
+ * Standard Accessible Modal Dialog strictly adhering to
+ * Forest Green, Sand/Cream, and Charcoal.
  * 
  * @param {Object} props
  * @param {boolean} props.isOpen
@@ -50,7 +51,7 @@ export default function Modal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity animate-in fade-in"
+        className="fixed inset-0 bg-[#141816]/75 backdrop-blur-xs transition-opacity animate-in fade-in"
         onClick={onClose}
         aria-hidden="true"
       />
@@ -60,22 +61,22 @@ export default function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
-        className={`relative w-full ${maxWidthStyles[maxWidth] || maxWidthStyles.md} bg-white rounded-2xl shadow-xl border border-slate-200/90 overflow-hidden transform transition-all animate-in zoom-in-95`}
+        className={`relative w-full ${maxWidthStyles[maxWidth] || maxWidthStyles.md} bg-[#FAF6EE] text-[#1E2321] rounded-3xl shadow-2xl border border-[#E5DCC5] overflow-hidden transform transition-all animate-in zoom-in-95`}
       >
         {/* Header */}
-        <div className="px-6 py-4.5 border-b border-slate-100 flex items-start justify-between gap-4">
+        <div className="px-6 py-5 border-b border-[#E5DCC5] flex items-start justify-between gap-4">
           <div>
-            <h3 id="modal-title" className="text-lg font-bold text-slate-900 tracking-tight">
+            <h3 id="modal-title" className="text-lg font-black text-[#141816] tracking-tight">
               {title}
             </h3>
             {subtitle && (
-              <p className="text-xs text-slate-700 mt-0.5">{subtitle}</p>
+              <p className="text-xs text-[#5C6460] mt-0.5 font-medium">{subtitle}</p>
             )}
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+            className="text-[#5C6460] hover:text-[#141816] p-1.5 rounded-xl hover:bg-[#F3EDE0] transition-colors"
             aria-label="Close dialog"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -1,7 +1,8 @@
 import React from 'react';
 
 /**
- * Standard Accessible Button Component
+ * Standard Accessible Button Component strictly styled with
+ * Forest Green, Sand/Cream, and Charcoal.
  * 
  * @param {Object} props
  * @param {'primary'|'secondary'|'outline'|'danger'|'ghost'} [props.variant='primary']
@@ -27,11 +28,11 @@ export default function Button({
   ...rest
 }) {
   const variantStyles = {
-    primary: 'bg-emerald-600 text-white hover:bg-emerald-700 active:bg-emerald-800 focus:ring-emerald-500 shadow-xs border border-transparent',
-    secondary: 'bg-slate-900 text-white hover:bg-slate-800 active:bg-slate-950 focus:ring-slate-700 shadow-xs border border-transparent',
-    outline: 'bg-white text-slate-700 hover:bg-slate-50 active:bg-slate-100 border border-slate-300 focus:ring-slate-400 shadow-2xs',
-    danger: 'bg-rose-600 text-white hover:bg-rose-700 active:bg-rose-800 focus:ring-rose-500 shadow-xs border border-transparent',
-    ghost: 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100 active:bg-slate-200 border border-transparent'
+    primary: 'bg-[#1B4332] text-[#FDFBF7] hover:bg-[#22573F] active:bg-[#143621] focus:ring-[#1B4332] shadow-xs border border-[#143621]',
+    secondary: 'bg-[#1E2321] text-[#FAF6EE] hover:bg-[#2E3431] active:bg-[#141816] focus:ring-[#1E2321] shadow-xs border border-[#141816]',
+    outline: 'bg-[#FAF6EE] text-[#1E2321] hover:bg-[#F3EDE0] active:bg-[#EFE9DA] border border-[#E5DCC5] focus:ring-[#1B4332] shadow-2xs',
+    danger: 'bg-[#141816] text-[#FAF6EE] hover:bg-[#2E3431] active:bg-[#0C0F0E] focus:ring-[#141816] shadow-xs border border-[#2E3431]',
+    ghost: 'bg-transparent text-[#434A46] hover:text-[#141816] hover:bg-[#F7F4EB] active:bg-[#EFE9DA] border border-transparent'
   };
 
   const sizeStyles = {

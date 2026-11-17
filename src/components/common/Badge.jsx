@@ -1,7 +1,8 @@
 import React from 'react';
 
 /**
- * Standard Status Badge Component
+ * Standard Status Badge Component strictly adhering to
+ * Forest Green, Sand/Cream, and Charcoal.
  * 
  * @param {Object} props
  * @param {'emerald'|'amber'|'rose'|'blue'|'slate'|'purple'|'indigo'} [props.variant='slate']
@@ -11,13 +12,13 @@ import React from 'react';
  */
 export default function Badge({ variant = 'slate', size = 'sm', children, className = '' }) {
   const variantStyles = {
-    emerald: 'bg-emerald-50 text-emerald-700 border-emerald-200/80',
-    amber: 'bg-amber-50 text-amber-700 border-amber-200/80',
-    rose: 'bg-rose-50 text-rose-700 border-rose-200/80',
-    blue: 'bg-blue-50 text-blue-700 border-blue-200/80',
-    slate: 'bg-slate-100 text-slate-700 border-slate-200',
-    purple: 'bg-purple-50 text-purple-700 border-purple-200/80',
-    indigo: 'bg-indigo-50 text-indigo-700 border-indigo-200/80'
+    emerald: 'bg-[#D8ECE1] text-[#1B4332] border-[#B2DAC5]',
+    amber: 'bg-[#EFE9DA] text-[#363C39] border-[#D5C8AB]',
+    rose: 'bg-[#141816] text-[#FAF6EE] border-[#2E3431]',
+    blue: 'bg-[#D8ECE1] text-[#1B4332] border-[#B2DAC5]',
+    slate: 'bg-[#FAF6EE] text-[#363C39] border-[#E5DCC5]',
+    purple: 'bg-[#D8ECE1] text-[#1B4332] border-[#B2DAC5]',
+    indigo: 'bg-[#D8ECE1] text-[#1B4332] border-[#B2DAC5]'
   };
 
   const sizeStyles = {
@@ -55,7 +56,7 @@ export function PaymentStatusBadge({ status }) {
  */
 export function SyncStatusBadge({ status }) {
   if (status === 'synced') {
-    return <Badge variant="slate">✓ Synced</Badge>;
+    return <Badge variant="emerald">✓ Synced</Badge>;
   }
   return <Badge variant="amber">● Pending</Badge>;
 }

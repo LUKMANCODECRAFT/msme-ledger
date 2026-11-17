@@ -101,20 +101,20 @@ export default function Overview({ onNavigate }) {
       {/* ------------------------------------------------------------------- */}
       {/* 1. Quick Actions Hero Banner */}
       {/* ------------------------------------------------------------------- */}
-      <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-2xl p-6 text-white shadow-md flex flex-col md:flex-row md:items-center md:justify-between gap-6 border border-slate-700/60">
+      <div className="bg-[#141816] rounded-3xl p-6 md:p-8 text-[#FAF6EE] shadow-md flex flex-col md:flex-row md:items-center md:justify-between gap-6 border border-[#2E3431]">
         <div className="space-y-1.5 max-w-xl">
           <div className="flex items-center gap-2">
-            <span className="text-2xs font-bold tracking-widest uppercase text-emerald-400 bg-emerald-950/80 px-2.5 py-1 rounded-md border border-emerald-800/80">
+            <span className="text-2xs font-bold tracking-widest uppercase text-[#D8ECE1] bg-[#143621] px-2.5 py-1 rounded-full border border-[#2D6A4F]">
               Retail Operations • {currentRole.toUpperCase()}
             </span>
-            <span className="text-2xs font-bold tracking-widest uppercase text-slate-300 bg-slate-800/80 px-2.5 py-1 rounded-md border border-slate-700">
+            <span className="text-2xs font-bold tracking-widest uppercase text-[#FAF6EE] bg-[#2E3431] px-2.5 py-1 rounded-full border border-[#434A46]">
               Plan: {entitlementStatus.toUpperCase()}
             </span>
           </div>
-          <h2 className="text-xl md:text-2xl font-black tracking-tight text-white">
+          <h2 className="text-xl md:text-2xl font-black tracking-tight text-[#FAF6EE]">
             Daily Financial & Sales Pulse
           </h2>
-          <p className="text-sm text-slate-300">
+          <p className="text-sm text-[#A9AFAA] font-medium">
             Real-time local ledger statistics calculated directly from your device records.
           </p>
         </div>
@@ -138,7 +138,6 @@ export default function Overview({ onNavigate }) {
             variant="outline"
             size="md"
             onClick={() => onNavigate('inventory')}
-            className="bg-slate-800 text-white border-slate-700 hover:bg-slate-700 hover:text-white"
           >
             + Add Stock
           </Button>
@@ -147,7 +146,6 @@ export default function Overview({ onNavigate }) {
             variant="outline"
             size="md"
             onClick={() => onNavigate('credit_book')}
-            className="bg-slate-800 text-white border-slate-700 hover:bg-slate-700 hover:text-white"
           >
             Credit Book
           </Button>

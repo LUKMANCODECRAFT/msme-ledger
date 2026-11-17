@@ -125,19 +125,19 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans text-slate-900 antialiased selection:bg-emerald-500 selection:text-white">
+    <div className="min-h-screen bg-[#FDFBF7] flex flex-col md:flex-row font-sans text-[#1E2321] antialiased selection:bg-[#D8ECE1] selection:text-[#1B4332]">
       {/* --------------------------------------------------------------------- */}
       {/* 1. Desktop Fixed Sidebar */}
       {/* --------------------------------------------------------------------- */}
-      <aside className="hidden md:flex flex-col w-64 bg-slate-900 text-slate-300 border-r border-slate-800 shrink-0 sticky top-0 h-screen z-30">
+      <aside className="hidden md:flex flex-col w-64 bg-[#141816] text-[#FAF6EE] border-r border-[#2E3431] shrink-0 sticky top-0 h-screen z-30">
         {/* Brand & Business Identity Header */}
-        <div className="p-5 border-b border-slate-800">
+        <div className="p-5 border-b border-[#2E3431]">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white font-black text-lg shadow-sm">
+            <div className="w-10 h-10 rounded-xl bg-[#1B4332] text-[#FDFBF7] flex items-center justify-center font-black text-lg shadow-sm border border-[#143621]">
               ₦
             </div>
             <div className="min-w-0 flex-1">
-              <h1 className="text-base font-bold text-white tracking-tight truncate">
+              <h1 className="text-base font-bold text-[#FDFBF7] tracking-tight truncate">
                 MSME Ledger
               </h1>
               <p className="text-xs text-slate-400 truncate flex items-center gap-1.5">
@@ -355,19 +355,19 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
       {/* --------------------------------------------------------------------- */}
       {/* 3. Main Content Area */}
       {/* --------------------------------------------------------------------- */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-[#FDFBF7]">
         {/* Module Header Bar */}
-        <header className="bg-white border-b border-slate-200/90 px-4 py-4 md:px-8 md:py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 sticky top-0 md:static z-20 shadow-2xs">
+        <header className="bg-[#FAF6EE] border-b border-[#E5DCC5] px-4 py-4 md:px-8 md:py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 sticky top-0 md:static z-20 shadow-2xs">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">
+              <h2 className="text-xl md:text-2xl font-black text-[#141816] tracking-tight">
                 {currentModule.label}
               </h2>
-              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-[#F3EDE0] text-[#363C39] border border-[#E5DCC5]">
                 Live Data
               </span>
             </div>
-            <p className="text-xs md:text-sm text-slate-500 mt-0.5">
+            <p className="text-xs md:text-sm text-[#5C6460] mt-0.5 font-medium">
               {currentModule.description}
             </p>
           </div>
@@ -388,15 +388,15 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
               <button
                 type="button"
                 onClick={handleSyncClick}
-                className="hidden sm:inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-50 border border-amber-300 px-3 py-2 rounded-lg hover:bg-amber-100 transition-colors shadow-2xs"
+                className="hidden sm:inline-flex items-center gap-1.5 text-xs font-bold text-[#1B4332] bg-[#D8ECE1] border border-[#B2DAC5] px-3 py-2 rounded-lg hover:bg-[#B2DAC5] transition-colors shadow-2xs"
                 title="Click to check sync status"
               >
-                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                <span className="w-2 h-2 rounded-full bg-[#1B4332] animate-pulse" />
                 <span>Pending Sync: {pendingCount}</span>
               </button>
             ) : (
-              <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 bg-slate-100 border border-slate-200 px-3 py-2 rounded-lg shadow-2xs">
-                <span className="w-2 h-2 rounded-full bg-slate-400" />
+              <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-medium text-[#5C6460] bg-[#F3EDE0] border border-[#E5DCC5] px-3 py-2 rounded-lg shadow-2xs">
+                <span className="w-2 h-2 rounded-full bg-[#7E8684]" />
                 <span>Local Storage Clean</span>
               </span>
             )}
@@ -405,12 +405,12 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
 
         {/* Module Body Content */}
         {isReadOnly && (
-          <div className="bg-rose-50 border-b border-rose-200 text-rose-800 text-xs px-4 py-2.5 font-semibold flex items-center justify-between">
+          <div className="bg-[#F3EDE0] border-b border-[#E5DCC5] text-[#141816] text-xs px-4 py-2.5 font-semibold flex items-center justify-between">
             <span className="flex items-center gap-2">
               <span>⚠️</span>
               <span><strong>Read-Only Mode:</strong> {statusMessage}</span>
             </span>
-            <span className="text-2xs uppercase tracking-wider font-extrabold px-2 py-0.5 rounded bg-rose-100 text-rose-900 border border-rose-300">
+            <span className="text-2xs uppercase tracking-wider font-extrabold px-2 py-0.5 rounded bg-[#FAF6EE] text-[#141816] border border-[#E5DCC5]">
               {entitlementStatus}
             </span>
           </div>
@@ -420,7 +420,7 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
         </main>
 
         {/* Global Legal Footer */}
-        <footer className="bg-white border-t border-slate-200/80 px-4 py-4 text-center text-xs text-slate-400 mt-auto">
+        <footer className="bg-[#FAF6EE] border-t border-[#E5DCC5] px-4 py-4 text-center text-xs text-[#5C6460] mt-auto font-medium">
           <p>
             &copy; {new Date().getFullYear()} Lukman Code Craft. MSME Ledger — Offline-first retail ERP for Nigerian businesses.
           </p>

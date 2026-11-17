@@ -1,7 +1,8 @@
 import React from 'react';
 
 /**
- * Metric/KPI Stat Card Component
+ * Metric/KPI Stat Card Component strictly adhering to
+ * Forest Green, Sand/Cream, and Charcoal.
  * 
  * @param {Object} props
  * @param {string} props.title - Metric title (e.g., "Today's Sales")
@@ -24,35 +25,35 @@ export default function StatCard({
   className = ''
 }) {
   const iconBackgrounds = {
-    emerald: 'bg-emerald-50 text-emerald-600 border border-emerald-100',
-    blue: 'bg-blue-50 text-blue-600 border border-blue-100',
-    amber: 'bg-amber-50 text-amber-600 border border-amber-100',
-    rose: 'bg-rose-50 text-rose-600 border border-rose-100',
-    slate: 'bg-slate-100 text-slate-700 border border-slate-200'
+    emerald: 'bg-[#D8ECE1] text-[#1B4332] border border-[#B2DAC5]',
+    blue: 'bg-[#D8ECE1] text-[#1B4332] border border-[#B2DAC5]',
+    amber: 'bg-[#EFE9DA] text-[#363C39] border border-[#D5C8AB]',
+    rose: 'bg-[#141816] text-[#FAF6EE] border border-[#2E3431]',
+    slate: 'bg-[#F3EDE0] text-[#1E2321] border border-[#E5DCC5]'
   };
 
   return (
     <div
       onClick={onClick}
-      className={`bg-white rounded-xl p-5 border border-slate-200/90 shadow-xs hover:border-slate-300 transition-all ${onClick ? 'cursor-pointer hover:shadow-sm' : ''} ${className}`}
+      className={`bg-[#FAF6EE] rounded-2xl p-5 border border-[#E5DCC5] shadow-xs hover:border-[#D5C8AB] transition-all ${onClick ? 'cursor-pointer hover:shadow-sm' : ''} ${className}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-700">{title}</p>
-          <p className="text-2xl font-black tracking-tight text-slate-900">{value}</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-[#5C6460]">{title}</p>
+          <p className="text-2xl font-black tracking-tight text-[#141816]">{value}</p>
         </div>
         {icon && (
-          <div className={`p-2.5 rounded-lg shrink-0 ${iconBackgrounds[accentColor] || iconBackgrounds.slate}`}>
+          <div className={`p-2.5 rounded-xl shrink-0 ${iconBackgrounds[accentColor] || iconBackgrounds.slate}`}>
             {icon}
           </div>
         )}
       </div>
 
       {(subtitle || badge) && (
-        <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
-          {subtitle && <span className="text-slate-700 font-medium">{subtitle}</span>}
+        <div className="mt-3 pt-3 border-t border-[#E5DCC5] flex items-center justify-between text-xs">
+          {subtitle && <span className="text-[#434A46] font-medium">{subtitle}</span>}
           {badge && (
-            <span className="font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
+            <span className="font-bold text-[#1B4332] bg-[#D8ECE1] px-2 py-0.5 rounded border border-[#B2DAC5]">
               {badge}
             </span>
           )}
