@@ -29,7 +29,25 @@ function MainApp() {
 
   // Onboarding Gate: Prompt initial setup if no shopName is configured
   if (!isSetup) {
-    return <LandingPage onComplete={() => setIsSetup(true)} />;
+    return (
+      <LandingPage
+        onComplete={() => setIsSetup(true)}
+        onLaunchApp={() => setIsSetup(true)}
+      />
+    );
+  }
+
+  // Allow reviewing the Landing Page & User Guide anytime from inside the app
+  if (activeTab === 'landing') {
+    return (
+      <LandingPage
+        onComplete={() => {
+          setIsSetup(true);
+          setActiveTab('overview');
+        }}
+        onLaunchApp={() => setActiveTab('overview')}
+      />
+    );
   }
 
   // Hard Paywall Gate: Completely lock app if trial has expired and no subscription

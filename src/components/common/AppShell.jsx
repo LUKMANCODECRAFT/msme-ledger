@@ -203,6 +203,13 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
 
         {/* Sidebar Footer: Connectivity & Account Info */}
         <div className="p-4 border-t border-slate-800 text-xs text-slate-400 space-y-2.5">
+          <button
+            type="button"
+            onClick={() => onSelectTab('landing')}
+            className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold text-[#D8ECE1] bg-[#1B4332] hover:bg-[#22573F] transition-colors border border-[#2D6A4F] shadow-xs"
+          >
+            📖 About & User Guide
+          </button>
           <div className="flex items-center justify-between">
             <span className="flex items-center gap-2">
               <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-amber-500'}`} />
@@ -325,9 +332,21 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
               })}
             </nav>
 
-            <div className="pt-3 border-t border-slate-800 text-2xs text-slate-400 flex items-center justify-between">
-              <span>{isOnline ? '● Online (PWA)' : '○ Offline Mode'}</span>
-              <span>v2.1</span>
+            <div className="pt-3 border-t border-slate-800 space-y-2 text-2xs text-slate-400">
+              <button
+                type="button"
+                onClick={() => {
+                  onSelectTab('landing');
+                  setMobileMenuOpen(false);
+                }}
+                className="w-full py-2 px-3 rounded-lg text-xs font-bold text-[#D8ECE1] bg-[#1B4332] hover:bg-[#22573F] text-center border border-[#2D6A4F]"
+              >
+                📖 About & User Guide
+              </button>
+              <div className="flex items-center justify-between">
+                <span>{isOnline ? '● Online (PWA)' : '○ Offline Mode'}</span>
+                <span>v2.1</span>
+              </div>
             </div>
           </div>
         </div>
@@ -355,6 +374,15 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
 
           {/* Contextual Action Slot */}
           <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+            <button
+              type="button"
+              onClick={() => onSelectTab('landing')}
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-[#1B4332] bg-[#D8ECE1] hover:bg-[#B2DAC5] border border-[#B2DAC5] px-3 py-2 rounded-lg transition-colors shadow-2xs"
+              title="View guide and overview of all features"
+            >
+              <span>📖</span>
+              <span>Guide & About</span>
+            </button>
             {headerActions}
             {pendingCount > 0 ? (
               <button
