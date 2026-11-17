@@ -204,13 +204,13 @@ export async function getAllPendingSyncCounts() {
     productsPending,
     stockMovementsPending
   ] = await Promise.all([
-    msme_ledger_db.customers ? msme_ledger_db.customers.where('sync_status').equals('pending').count().catch(() => 0) : 0,
-    msme_ledger_db.inventory ? msme_ledger_db.inventory.where('sync_status').equals('pending').count().catch(() => 0) : 0,
-    msme_ledger_db.sales ? msme_ledger_db.sales.where('sync_status').equals('pending').count().catch(() => 0) : 0,
-    msme_ledger_db.transactions ? msme_ledger_db.transactions.where('sync_status').equals('pending').count().catch(() => 0) : 0,
-    sb_db.expenses ? sb_db.expenses.where('sync_status').equals('pending').count().catch(() => 0) : 0,
-    sb_db.products ? sb_db.products.where('sync_status').equals('pending').count().catch(() => 0) : 0,
-    sb_db.stockMovements ? sb_db.stockMovements.where('sync_status').equals('pending').count().catch(() => 0) : 0
+    msme_ledger_db.customers ? msme_ledger_db.customers.where('sync_status').equals('pending').count() : 0,
+    msme_ledger_db.inventory ? msme_ledger_db.inventory.where('sync_status').equals('pending').count() : 0,
+    msme_ledger_db.sales ? msme_ledger_db.sales.where('sync_status').equals('pending').count() : 0,
+    msme_ledger_db.transactions ? msme_ledger_db.transactions.where('sync_status').equals('pending').count() : 0,
+    sb_db.expenses ? sb_db.expenses.where('sync_status').equals('pending').count() : 0,
+    sb_db.products ? sb_db.products.where('sync_status').equals('pending').count() : 0,
+    sb_db.stockMovements ? sb_db.stockMovements.where('sync_status').equals('pending').count() : 0
   ]);
 
   const total = customersPending +

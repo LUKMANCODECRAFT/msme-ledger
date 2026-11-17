@@ -1,8 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { msme_ledger_db, sb_db } from '../config/db.js';
-import { addInventory } from '../services/ledgerService.js';
-import { getShopId } from '../utils/shopIdentity.js';
+import { msme_ledger_db } from '../config/db.js';
+import { createProduct, adjustStock } from '../services/inventoryService.js';
 import { formatNaira, formatNumber } from '../utils/formatters.js';
 import Button from '../components/common/Button.jsx';
 import Modal from '../components/common/Modal.jsx';
@@ -75,37 +74,18 @@ export default function Inventory() {
     setIsSubmitting(true);
     try {
       const priceKobo = Math.floor(parsedPriceNaira * 100);
-      const inventoryId = await addInventory({
-        itemName: newProductName.trim(),
-        price: priceKobo,
-        stockCount: parsedStock
-      });
+      const costKobo = hasVerifiedCost && unitCostNaira ? Math.floor(parseFloat(unitCostNaira) * 100) : null;
 
-      // If verified cost was provided, also record normalized product in sb_db for Target architecture
-      try {
-        if (sb_db.products) {
-          const costKobo = hasVerifiedCost && unitCostNaira ? Math.floor(parseFloat(unitCostNaira) * 100) : null;
-          const businessId = getShopId();
-          await sb_db.products.put({
-            id: inventoryId,
-            businessId,
-            name: newProductName.trim(),
-            sku: newProductSku ? newProductSku.trim() : undefined,
-            sellingPrice: priceKobo,
-            hasVerifiedCost: Boolean(hasVerifiedCost && costKobo),
-            verifiedUnitCost: costKobo,
-            isArchived: false,
-            sync_status: 'pending',
-            updatedAt: new Date()
-          });
-        }
-      } catch (targetErr) {
-        console.warn('Target store product write encountered issue:', targetErr.message);
-      }
+      await createProduct({
+        name: newProductName.trim(),
+        priceKobo,
+        stockCount: parsedStock,
+        hasVerifiedCost,
+        verifiedUnitCost: costKobo
+      });
 
       // Reset
       setNewProductName('');
-      setNewProductSku('');
       setNewProductPriceNaira('');
       setNewProductStock('');
       setHasVerifiedCost(false);
@@ -129,38 +109,13 @@ export default function Inventory() {
       return;
     }
 
-    const currentCount = selectedItemForAdjust.stockCount || 0;
-    const finalCount = adjustmentType === 'ADD' ? currentCount + delta : currentCount - delta;
-
-    if (finalCount < 0) {
-      alert(`Cannot reduce stock below zero. Current stock is ${currentCount}.`);
-      return;
-    }
-
     try {
-      await msme_ledger_db.inventory.update(selectedItemForAdjust.id, {
-        stockCount: finalCount,
-        updatedAt: new Date(),
-        sync_status: 'pending'
+      await adjustStock({
+        productId: selectedItemForAdjust.id,
+        delta,
+        movementType: adjustmentType === 'ADD' ? 'RESTOCK' : 'ADJUSTMENT_DAMAGE',
+        reason: adjustmentType === 'ADD' ? 'Manual stock restock' : 'Damage or spoilage adjustment'
       });
-
-      // Also record stock movement in sb_db if available
-      try {
-        if (sb_db.stockMovements) {
-          const businessId = getShopId();
-          await sb_db.stockMovements.add({
-            id: crypto.randomUUID(),
-            businessId,
-            productId: selectedItemForAdjust.id,
-            movementType: adjustmentType === 'ADD' ? 'RESTOCK' : 'ADJUSTMENT_DAMAGE',
-            quantityDelta: adjustmentType === 'ADD' ? delta : -delta,
-            movementDate: new Date(),
-            sync_status: 'pending'
-          });
-        }
-      } catch (movementErr) {
-        console.warn('Target store stock movement write encountered issue:', movementErr.message);
-      }
 
       setSelectedItemForAdjust(null);
       setAdjustmentDelta('');

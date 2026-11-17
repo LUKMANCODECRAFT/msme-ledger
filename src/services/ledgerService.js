@@ -1,4 +1,5 @@
 import { msme_ledger_db } from '../config/db.js';
+import { createProduct } from './inventoryService.js';
 
 export const SUPPORTED_PAYMENT_METHODS = ['cash', 'bank_transfer', 'pos'];
 
@@ -339,24 +340,26 @@ export async function createCustomer(customerData) {
  * @returns {Promise<string>} The new inventory ID
  */
 export async function addInventory(inventoryData) {
-  const inventoryId = crypto.randomUUID();
-  
+  if (!inventoryData || typeof inventoryData !== 'object') {
+    throw new Error('Inventory data is required.');
+  }
+
   const parsedPrice = parseInt(inventoryData.price, 10);
   const parsedStockCount = parseInt(inventoryData.stockCount, 10);
 
   if (isNaN(parsedPrice) || isNaN(parsedStockCount)) {
     throw new Error('Inventory price and stockCount must be valid numbers.');
   }
-  
-  const inventoryRecord = {
-    id: inventoryId,
-    itemName: inventoryData.itemName,
-    price: parsedPrice,
-    stockCount: parsedStockCount,
-    sync_status: 'pending',
-    updatedAt: new Date()
-  };
 
-  await msme_ledger_db.inventory.add(inventoryRecord);
-  return inventoryId;
+  const result = await createProduct({
+    name: inventoryData.itemName,
+    priceKobo: parsedPrice,
+    stockCount: parsedStockCount,
+    sku: inventoryData.sku,
+    hasVerifiedCost: inventoryData.hasVerifiedCost,
+    verifiedUnitCost: inventoryData.verifiedUnitCost,
+    productId: inventoryData.id
+  });
+
+  return result.id;
 }

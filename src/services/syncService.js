@@ -12,31 +12,43 @@ export class SyncError extends Error {
 
 /**
  * Pushes pending local data to the remote server.
- * Strictly adheres to Phase 4 & FE-01R data-integrity requirements:
- * 1. Checks all pending local record types across both databases.
- * 2. Never claims success if synchronization is rejected or unavailable.
- * 3. Handles HTTP 410 as SYNC_UNAVAILABLE, never marking records as synced.
- * 4. Preserves unsupported records locally in 'pending' status.
- * 5. Accurately distinguishes full success, partial success, failure, unavailable, and no pending.
+ * Strictly adheres to Phase 4, FE-01R, and FE-01R2 data-integrity requirements:
+ * 1. Checks all 7 pending local record types across both databases.
+ * 2. Never claims success or pendingCount: 0 if any record remains pending.
+ * 3. Explicitly identifies all unsupported groups, including products, stockMovements, expenses, and transactions.
+ * 4. Preserves all unsupported records as pending locally.
+ * 5. Handles HTTP 410 as SYNC_UNAVAILABLE, never marking records as synced.
+ * 6. Accurately reports partial synchronization with remaining pending count and itemized breakdown.
+ * 7. Never swallows database query errors.
  * 
- * @returns {Promise<{ success: boolean, status: 'success' | 'partial' | 'no_pending' | 'unavailable' | 'failed', message: string, pendingCount: number, syncedCount: number, details?: any }>}
+ * @returns {Promise<{
+ *   success: boolean,
+ *   status: 'success' | 'partial' | 'no_pending' | 'unavailable' | 'failed',
+ *   message: string,
+ *   pendingCount: number,
+ *   syncedCount: number,
+ *   breakdown: Record<string, number>,
+ *   unsupportedGroups: string[]
+ * }>}
  */
 export async function pushPendingData() {
-  // 1. Audit pending counts across all local stores
+  // 1. Audit pending counts across all 7 local stores
   const pendingSummary = await getAllPendingSyncCounts();
 
-  // Exit early with clean status if nothing is pending
+  // Exit early with clean status if nothing is pending across all tables
   if (pendingSummary.total === 0) {
     return {
       success: true,
       status: 'no_pending',
       message: 'No pending records exist. All local records are clean.',
       pendingCount: 0,
-      syncedCount: 0
+      syncedCount: 0,
+      breakdown: pendingSummary.breakdown,
+      unsupportedGroups: []
     };
   }
 
-  // 2. Query pending records from local stores
+  // 2. Query pending records for every group across both databases
   const customers = await msme_ledger_db.customers.where('sync_status').equals('pending').toArray();
   const inventory = await msme_ledger_db.inventory.where('sync_status').equals('pending').toArray();
   const sales = await msme_ledger_db.sales.where('sync_status').equals('pending').toArray();
@@ -46,6 +58,46 @@ export async function pushPendingData() {
   const expenses = sb_db.expenses
     ? await sb_db.expenses.where('sync_status').equals('pending').toArray()
     : [];
+  const products = sb_db.products
+    ? await sb_db.products.where('sync_status').equals('pending').toArray()
+    : [];
+  const stockMovements = sb_db.stockMovements
+    ? await sb_db.stockMovements.where('sync_status').equals('pending').toArray()
+    : [];
+
+  // Identify unsupported record groups
+  const unsupportedBreakdown = {
+    transactions: transactions.length,
+    expenses: expenses.length,
+    products: products.length,
+    stockMovements: stockMovements.length
+  };
+  const unsupportedPending = transactions.length + expenses.length + products.length + stockMovements.length;
+  const unsupportedGroups = Object.keys(unsupportedBreakdown).filter(k => unsupportedBreakdown[k] > 0);
+
+  const supportedPendingCount = customers.length + inventory.length + sales.length;
+
+  // 3. If only unsupported records exist, cloud sync is unavailable for them.
+  // Never call the server or claim full success; report partial/unavailable with exact pending count.
+  if (supportedPendingCount === 0 && unsupportedPending > 0) {
+    return {
+      success: true,
+      status: 'partial',
+      message: `Synchronization cannot complete: ${unsupportedPending} record(s) (${unsupportedGroups.join(', ')}) remain pending locally because cloud synchronization for them is unavailable.`,
+      syncedCount: 0,
+      pendingCount: unsupportedPending,
+      breakdown: {
+        customers: 0,
+        inventory: 0,
+        sales: 0,
+        transactions: transactions.length,
+        expenses: expenses.length,
+        products: products.length,
+        stockMovements: stockMovements.length
+      },
+      unsupportedGroups
+    };
+  }
 
   const apiUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL)
     ? import.meta.env.VITE_API_URL
@@ -53,7 +105,7 @@ export async function pushPendingData() {
       ? process.env.VITE_API_URL
       : 'http://localhost:3000');
 
-  // 3. Attempt API request
+  // 4. Attempt API request for supported records
   let response;
   try {
     const payload = {
@@ -78,7 +130,7 @@ export async function pushPendingData() {
     );
   }
 
-  // 4. Handle HTTP 410 Gone (Retired endpoint)
+  // 5. Handle HTTP 410 Gone (Retired endpoint)
   if (response.status === 410) {
     throw new SyncError(
       'SYNC_UNAVAILABLE',
@@ -87,7 +139,7 @@ export async function pushPendingData() {
     );
   }
 
-  // 5. Handle other non-200 responses
+  // 6. Handle other non-200 responses
   if (response.status !== 200) {
     throw new SyncError(
       'SYNC_FAILED',
@@ -96,8 +148,8 @@ export async function pushPendingData() {
     );
   }
 
-  // 6. If response is 200, only the legacy payloads (customers, inventory, sales) could be synchronized.
-  // Repayments (transactions) and expenses have no backend sync route and must NOT be marked synced!
+  // 7. If response is 200, only the submitted payloads (customers, inventory, sales) are confirmed synchronized.
+  // All unsupported groups (transactions, expenses, products, stockMovements) remain in 'pending' status!
   await msme_ledger_db.transaction(
     'rw',
     [msme_ledger_db.customers, msme_ledger_db.inventory, msme_ledger_db.sales],
@@ -113,23 +165,24 @@ export async function pushPendingData() {
   );
 
   const syncedCount = customers.length + inventory.length + sales.length;
-  const unsupportedPending = transactions.length + expenses.length;
 
   if (unsupportedPending > 0) {
     return {
       success: true,
       status: 'partial',
-      message: `Synchronization partially succeeded (${syncedCount} records synced). ${unsupportedPending} records (repayments / expenses) remain pending locally because cloud sync for them is currently unavailable.`,
+      message: `Synchronization partially succeeded (${syncedCount} records synced). ${unsupportedPending} record(s) (${unsupportedGroups.join(', ')}) remain pending locally because cloud sync for them is currently unavailable.`,
       syncedCount,
       pendingCount: unsupportedPending,
-      details: {
-        syncedCount,
-        unsupportedPending,
-        breakdown: {
-          transactions: transactions.length,
-          expenses: expenses.length
-        }
-      }
+      breakdown: {
+        customers: 0,
+        inventory: 0,
+        sales: 0,
+        transactions: transactions.length,
+        expenses: expenses.length,
+        products: products.length,
+        stockMovements: stockMovements.length
+      },
+      unsupportedGroups
     };
   }
 
@@ -138,6 +191,16 @@ export async function pushPendingData() {
     status: 'success',
     message: `Synchronization succeeded. ${syncedCount} records synced.`,
     syncedCount,
-    pendingCount: 0
+    pendingCount: 0,
+    breakdown: {
+      customers: 0,
+      inventory: 0,
+      sales: 0,
+      transactions: 0,
+      expenses: 0,
+      products: 0,
+      stockMovements: 0
+    },
+    unsupportedGroups: []
   };
 }
