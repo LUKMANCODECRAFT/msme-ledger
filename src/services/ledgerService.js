@@ -1,5 +1,10 @@
 import { msme_ledger_db } from '../config/db.js';
 import { createProduct } from './inventoryService.js';
+import {
+  toQuantityUnits,
+  fromQuantityUnits,
+  QUANTITY_SCALE
+} from '../domain/inventory/quantity.js';
 
 export const SUPPORTED_PAYMENT_METHODS = ['cash', 'bank_transfer', 'pos'];
 
@@ -47,9 +52,10 @@ export async function recordSale({
   }
 
   // Validate payment method
-  const normalizedPaymentMethod = SUPPORTED_PAYMENT_METHODS.includes(paymentMethod)
-    ? paymentMethod
-    : 'cash';
+  if (paymentMethod !== undefined && paymentMethod !== null && !SUPPORTED_PAYMENT_METHODS.includes(paymentMethod)) {
+    throw new Error(`Invalid payment method "${paymentMethod}". Supported methods are: ${SUPPORTED_PAYMENT_METHODS.join(', ')}`);
+  }
+  const normalizedPaymentMethod = paymentMethod || 'cash';
 
   // Wrap logic in a read-write transaction covering all affected tables
   return await msme_ledger_db.transaction(
@@ -61,10 +67,18 @@ export async function recordSale({
       // Process inventory items
       for (const item of items) {
         const parsedPrice = parseInt(item.price, 10);
-        const parsedQuantity = parseInt(item.quantity, 10);
+        if (isNaN(parsedPrice) || parsedPrice <= 0) {
+          throw new Error('Item price must be a valid positive number in Kobo.');
+        }
 
-        if (isNaN(parsedPrice) || isNaN(parsedQuantity) || parsedQuantity <= 0) {
-          throw new Error('Item price and quantity must be valid positive numbers.');
+        let quantityUnits;
+        try {
+          quantityUnits = toQuantityUnits(item.quantity, { allowNegative: false });
+          if (quantityUnits <= 0) {
+            throw new Error('Quantity must be strictly positive.');
+          }
+        } catch (qtyErr) {
+          throw new Error(`Invalid item quantity: ${qtyErr.message}`);
         }
 
         const inventoryRecord = await msme_ledger_db.inventory.get(item.inventoryId);
@@ -73,19 +87,22 @@ export async function recordSale({
           throw new Error(`Inventory item with ID ${item.inventoryId} not found.`);
         }
 
-        if (inventoryRecord.stockCount < parsedQuantity) {
+        const currentScaledStock = toQuantityUnits(inventoryRecord.stockCount || 0, { allowNegative: true });
+        if (currentScaledStock < quantityUnits) {
           throw new Error(
-            `Insufficient stock for inventory item "${inventoryRecord.itemName}". Available: ${inventoryRecord.stockCount}, Requested: ${parsedQuantity}.`
+            `Insufficient stock for inventory item "${inventoryRecord.itemName}". Available: ${fromQuantityUnits(currentScaledStock)}, Requested: ${fromQuantityUnits(quantityUnits)}.`
           );
         }
 
-        // Deduct quantity
-        inventoryRecord.stockCount -= parsedQuantity;
+        // Deduct quantity using exact scaled integer units
+        const newScaledStock = currentScaledStock - quantityUnits;
+        inventoryRecord.stockCount = fromQuantityUnits(newScaledStock);
         inventoryRecord.updatedAt = new Date();
         inventoryRecord.sync_status = 'pending';
         await msme_ledger_db.inventory.put(inventoryRecord);
 
-        totalAmount += (parsedPrice * parsedQuantity);
+        const lineTotalKobo = Math.round((parsedPrice * quantityUnits) / QUANTITY_SCALE);
+        totalAmount += lineTotalKobo;
       }
 
       // Calculate amount applied to sale, change returned, and remaining balance

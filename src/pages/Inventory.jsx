@@ -15,6 +15,7 @@ export default function Inventory() {
 
   // Modal: Add Product
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [addOperationId, setAddOperationId] = useState(() => `op_ui_prod_${crypto.randomUUID()}`);
   const [newProductName, setNewProductName] = useState('');
   const [newProductPriceNaira, setNewProductPriceNaira] = useState('');
   const [newProductStock, setNewProductStock] = useState('');
@@ -24,8 +25,10 @@ export default function Inventory() {
 
   // Modal: Adjust Stock
   const [selectedItemForAdjust, setSelectedItemForAdjust] = useState(null);
+  const [adjustOperationId, setAdjustOperationId] = useState(null);
   const [adjustmentDelta, setAdjustmentDelta] = useState('');
   const [adjustmentType, setAdjustmentType] = useState('ADD'); // 'ADD' | 'REMOVE'
+  const [isAdjustSubmitting, setIsAdjustSubmitting] = useState(false);
 
   // Query live inventory from Dexie
   const inventory = useLiveQuery(() => msme_ledger_db.inventory.toArray()) || [];
@@ -64,7 +67,7 @@ export default function Inventory() {
     if (!newProductName.trim() || !newProductPriceNaira || !newProductStock) return;
 
     const parsedPriceNaira = parseFloat(newProductPriceNaira);
-    const parsedStock = parseInt(newProductStock, 10);
+    const parsedStock = parseFloat(newProductStock);
 
     if (isNaN(parsedPriceNaira) || parsedPriceNaira <= 0 || isNaN(parsedStock) || parsedStock < 0) {
       alert('Please enter valid positive numbers for price and stock count.');
@@ -79,18 +82,20 @@ export default function Inventory() {
       await createProduct({
         name: newProductName.trim(),
         priceKobo,
-        stockCount: parsedStock,
+        stockCount: newProductStock.trim(),
         hasVerifiedCost,
-        verifiedUnitCost: costKobo
+        verifiedUnitCost: costKobo,
+        operationId: addOperationId
       });
 
-      // Reset
+      // Reset upon verified terminal success
       setNewProductName('');
       setNewProductPriceNaira('');
       setNewProductStock('');
       setHasVerifiedCost(false);
       setUnitCostNaira('');
       setIsAddModalOpen(false);
+      setAddOperationId(`op_ui_prod_${crypto.randomUUID()}`);
     } catch (err) {
       alert(`Failed to add product: ${err.message}`);
     } finally {
@@ -103,24 +108,24 @@ export default function Inventory() {
     e.preventDefault();
     if (!selectedItemForAdjust || !adjustmentDelta) return;
 
-    const delta = parseInt(adjustmentDelta, 10);
-    if (isNaN(delta) || delta <= 0) {
-      alert('Please enter a valid positive adjustment quantity.');
-      return;
-    }
-
+    setIsAdjustSubmitting(true);
     try {
+      const opId = adjustOperationId || `op_ui_adj_${selectedItemForAdjust.id}_${crypto.randomUUID()}`;
       await adjustStock({
         productId: selectedItemForAdjust.id,
-        delta,
+        delta: adjustmentDelta.trim(),
         movementType: adjustmentType === 'ADD' ? 'RESTOCK' : 'ADJUSTMENT_DAMAGE',
-        reason: adjustmentType === 'ADD' ? 'Manual stock restock' : 'Damage or spoilage adjustment'
+        reason: adjustmentType === 'ADD' ? 'Manual stock restock' : 'Damage or spoilage adjustment',
+        operationId: opId
       });
 
       setSelectedItemForAdjust(null);
+      setAdjustOperationId(null);
       setAdjustmentDelta('');
     } catch (err) {
       alert(`Failed to update stock: ${err.message}`);
+    } finally {
+      setIsAdjustSubmitting(false);
     }
   };
 
@@ -326,6 +331,7 @@ export default function Inventory() {
                           type="button"
                           onClick={() => {
                             setSelectedItemForAdjust(item);
+                            setAdjustOperationId(`op_ui_adj_${item.id}_${crypto.randomUUID()}`);
                             setAdjustmentDelta('');
                           }}
                           className="text-xs font-bold text-emerald-600 hover:text-emerald-700 hover:underline px-2 py-1"
@@ -505,7 +511,7 @@ export default function Inventory() {
               <Button variant="outline" size="md" onClick={() => setSelectedItemForAdjust(null)}>
                 Cancel
               </Button>
-              <Button type="submit" variant="primary" size="md">
+              <Button type="submit" variant="primary" size="md" isLoading={isAdjustSubmitting} disabled={isAdjustSubmitting}>
                 Confirm Adjustment
               </Button>
             </div>

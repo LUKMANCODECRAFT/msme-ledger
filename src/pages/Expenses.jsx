@@ -11,6 +11,7 @@ import EmptyState from '../components/common/EmptyState.jsx';
 
 export default function Expenses() {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [expenseOperationId, setExpenseOperationId] = useState(() => `op_ui_exp_${crypto.randomUUID()}`);
   const [category, setCategory] = useState(EXPENSE_CATEGORIES[0]);
   const [amountNaira, setAmountNaira] = useState('');
   const [notes, setNotes] = useState('');
@@ -58,13 +59,15 @@ export default function Expenses() {
         amountKobo,
         notes,
         paymentMethod,
-        expenseDate
+        expenseDate,
+        operationId: expenseOperationId
       });
 
-      // Reset form
+      // Reset form upon verified terminal success
       setAmountNaira('');
       setNotes('');
       setIsModalOpen(false);
+      setExpenseOperationId(`op_ui_exp_${crypto.randomUUID()}`);
     } catch (err) {
       alert(`Failed to log expense: ${err.message}`);
     } finally {

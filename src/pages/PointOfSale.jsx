@@ -140,7 +140,7 @@ export default function PointOfSale() {
     if (!newProductName.trim() || !newProductPriceNaira || !newProductStock) return;
     try {
       const parsedPriceNaira = parseFloat(newProductPriceNaira);
-      const parsedStock = parseInt(newProductStock, 10);
+      const parsedStock = parseFloat(newProductStock);
       if (isNaN(parsedPriceNaira) || parsedPriceNaira <= 0 || isNaN(parsedStock) || parsedStock < 0) {
         alert('Please enter valid positive numbers for price and stock count.');
         return;
@@ -150,7 +150,7 @@ export default function PointOfSale() {
       await addInventory({
         itemName: newProductName.trim(),
         price: priceKobo,
-        stockCount: parsedStock
+        stockCount: newProductStock.trim()
       });
 
       setNewProductName('');

@@ -81,7 +81,7 @@ export async function pushPendingData() {
   // Never call the server or claim full success; report partial/unavailable with exact pending count.
   if (supportedPendingCount === 0 && unsupportedPending > 0) {
     return {
-      success: true,
+      success: false,
       status: 'partial',
       message: `Synchronization cannot complete: ${unsupportedPending} record(s) (${unsupportedGroups.join(', ')}) remain pending locally because cloud synchronization for them is unavailable.`,
       syncedCount: 0,
@@ -149,18 +149,42 @@ export async function pushPendingData() {
   }
 
   // 7. If response is 200, only the submitted payloads (customers, inventory, sales) are confirmed synchronized.
-  // All unsupported groups (transactions, expenses, products, stockMovements) remain in 'pending' status!
+  // Stale acknowledgement prevention: snapshot timestamps of submitted records.
+  // Records modified while sync was in-flight must NOT have their pending status overwritten!
+  const customerSnapshots = new Map(customers.map(c => [c.id, c.updatedAt ? new Date(c.updatedAt).getTime() : 0]));
+  const inventorySnapshots = new Map(inventory.map(i => [i.id, i.updatedAt ? new Date(i.updatedAt).getTime() : 0]));
+  const salesSnapshots = new Map(sales.map(s => [s.id, s.date ? new Date(s.date).getTime() : 0]));
+
   await msme_ledger_db.transaction(
     'rw',
     [msme_ledger_db.customers, msme_ledger_db.inventory, msme_ledger_db.sales],
     async () => {
-      const syncedCustomers = customers.map(record => ({ ...record, sync_status: 'synced' }));
-      const syncedInventory = inventory.map(record => ({ ...record, sync_status: 'synced' }));
-      const syncedSales = sales.map(record => ({ ...record, sync_status: 'synced' }));
+      for (const c of customers) {
+        const live = await msme_ledger_db.customers.get(c.id);
+        const snapshotTime = customerSnapshots.get(c.id);
+        const liveTime = live?.updatedAt ? new Date(live.updatedAt).getTime() : 0;
+        if (live && liveTime <= snapshotTime) {
+          await msme_ledger_db.customers.update(c.id, { sync_status: 'synced' });
+        }
+      }
 
-      if (syncedCustomers.length > 0) await msme_ledger_db.customers.bulkPut(syncedCustomers);
-      if (syncedInventory.length > 0) await msme_ledger_db.inventory.bulkPut(syncedInventory);
-      if (syncedSales.length > 0) await msme_ledger_db.sales.bulkPut(syncedSales);
+      for (const inv of inventory) {
+        const live = await msme_ledger_db.inventory.get(inv.id);
+        const snapshotTime = inventorySnapshots.get(inv.id);
+        const liveTime = live?.updatedAt ? new Date(live.updatedAt).getTime() : 0;
+        if (live && liveTime <= snapshotTime) {
+          await msme_ledger_db.inventory.update(inv.id, { sync_status: 'synced' });
+        }
+      }
+
+      for (const s of sales) {
+        const live = await msme_ledger_db.sales.get(s.id);
+        const snapshotTime = salesSnapshots.get(s.id);
+        const liveTime = live?.date ? new Date(live.date).getTime() : 0;
+        if (live && liveTime <= snapshotTime) {
+          await msme_ledger_db.sales.update(s.id, { sync_status: 'synced' });
+        }
+      }
     }
   );
 
@@ -168,7 +192,7 @@ export async function pushPendingData() {
 
   if (unsupportedPending > 0) {
     return {
-      success: true,
+      success: false,
       status: 'partial',
       message: `Synchronization partially succeeded (${syncedCount} records synced). ${unsupportedPending} record(s) (${unsupportedGroups.join(', ')}) remain pending locally because cloud sync for them is currently unavailable.`,
       syncedCount,
