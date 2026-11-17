@@ -9,7 +9,7 @@ import StatCard from '../components/common/StatCard.jsx';
 import Badge from '../components/common/Badge.jsx';
 import EmptyState from '../components/common/EmptyState.jsx';
 
-export default function Inventory() {
+export default function Inventory({ isReadOnly = false }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [stockFilter, setStockFilter] = useState('ALL'); // 'ALL' | 'LOW' | 'OUT' | 'HEALTHY'
 
@@ -64,6 +64,10 @@ export default function Inventory() {
   // Handle Add Product Submit
   const handleAddProduct = async (e) => {
     e.preventDefault();
+    if (isReadOnly) {
+      alert('Application is in read-only mode due to subscription status. Adding products is locked.');
+      return;
+    }
     if (!newProductName.trim() || !newProductPriceNaira || !newProductStock) return;
 
     const parsedPriceNaira = parseFloat(newProductPriceNaira);
@@ -106,6 +110,10 @@ export default function Inventory() {
   // Handle Stock Adjustment
   const handleAdjustStock = async (e) => {
     e.preventDefault();
+    if (isReadOnly) {
+      alert('Application is in read-only mode due to subscription status. Stock adjustments are locked.');
+      return;
+    }
     if (!selectedItemForAdjust || !adjustmentDelta) return;
 
     setIsAdjustSubmitting(true);

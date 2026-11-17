@@ -7,7 +7,7 @@ import Button from '../components/common/Button.jsx';
 import Modal from '../components/common/Modal.jsx';
 import Badge from '../components/common/Badge.jsx';
 
-export default function PointOfSale() {
+export default function PointOfSale({ isReadOnly = false }) {
   const customers = useLiveQuery(() => msme_ledger_db.customers.toArray()) || [];
   const inventory = useLiveQuery(() => msme_ledger_db.inventory.toArray()) || [];
 
@@ -165,6 +165,11 @@ export default function PointOfSale() {
   // Finalize Sale
   const handleCheckout = async (e) => {
     e.preventDefault();
+
+    if (isReadOnly) {
+      alert('Application is in read-only mode due to subscription status. Sales checkout is locked.');
+      return;
+    }
 
     if (!selectedCustomerId) {
       alert('Please select or add a customer for this transaction.');

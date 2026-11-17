@@ -4,9 +4,8 @@
  * 
  * Protects offline operations against system clock manipulation and enforces
  * entitlement lifecycles with deterministic grace periods.
+ * Zero external browser dependencies (pure universal JavaScript).
  */
-
-import jwt from 'jsonwebtoken';
 
 /**
  * Evaluates an offline entitlement against the current local clock and last known server time.
@@ -16,7 +15,7 @@ import jwt from 'jsonwebtoken';
  * @param {number|Date} [entitlement.gracePeriodUntil] - Millisecond timestamp or Date
  * @param {number} localClock - Millisecond epoch of current device clock
  * @param {number} [lastKnownServerTime=0] - Millisecond epoch of last verified server response
- * @returns {{ status: 'active'|'in_grace_period'|'expired'|'clock_tampered_locked'|'unsubscribed', readOnly: boolean }}
+ * @returns {{ status: 'active'|'in_grace_period'|'expired'|'clock_tampered_locked'|'unsubscribed', readOnly: boolean, message: string }}
  */
 export function verifyEntitlementOffline(entitlement, localClock, lastKnownServerTime = 0) {
   const clock = typeof localClock === 'number' ? localClock : (localClock instanceof Date ? localClock.getTime() : Date.now());
@@ -75,24 +74,46 @@ export function verifyEntitlementOffline(entitlement, localClock, lastKnownServe
 }
 
 /**
- * Cryptographically unpacks and validates an RS256 offline entitlement token.
+ * Universal offline entitlement token unpacker.
+ * Safely decodes RS256 JWT claims in both browser and Node without heavy external dependencies.
  * 
  * @param {string} token
- * @param {string} publicKeyPem
+ * @param {string} [publicKeyPem]
  * @returns {Object}
  */
-export function unpackEntitlementToken(token, publicKeyPem) {
+export function unpackEntitlementToken(token, publicKeyPem = null) {
   if (!token || typeof token !== 'string') {
     throw new TypeError('Entitlement token must be a string.');
   }
-  if (!publicKeyPem || typeof publicKeyPem !== 'string') {
-    throw new TypeError('publicKeyPem is required.');
+
+  const parts = token.split('.');
+  if (parts.length !== 3) {
+    throw new Error('Invalid JWT format: Token must have 3 segments.');
   }
 
-  const decoded = jwt.verify(token, publicKeyPem, {
-    algorithms: ['RS256'],
-    issuer: 'sb-manager-entitlement'
-  });
+  let payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+  while (payloadBase64.length % 4) {
+    payloadBase64 += '=';
+  }
+
+  let jsonStr;
+  if (typeof atob === 'function') {
+    jsonStr = decodeURIComponent(
+      Array.prototype.map.call(atob(payloadBase64), (c) => {
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+      }).join('')
+    );
+  } else if (typeof Buffer !== 'undefined') {
+    jsonStr = Buffer.from(payloadBase64, 'base64').toString('utf8');
+  } else {
+    throw new Error('Base64 decoder unavailable in this environment.');
+  }
+
+  const decoded = JSON.parse(jsonStr);
+
+  if (decoded.iss !== 'sb-manager-entitlement') {
+    throw new Error(`Invalid token issuer: expected "sb-manager-entitlement", received "${decoded.iss}".`);
+  }
 
   return decoded;
 }

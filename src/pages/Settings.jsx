@@ -4,6 +4,8 @@ import { msme_ledger_db, sb_db, usePendingSyncCount } from '../config/db.js';
 import { pushPendingData } from '../services/syncService.js';
 import { getShopId } from '../utils/shopIdentity.js';
 import Button from '../components/common/Button.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
+import { useSubscription } from '../context/SubscriptionContext.jsx';
 
 export default function Settings() {
   const [shopNameInput, setShopNameInput] = useState(() => localStorage.getItem('shopName') || '');
@@ -11,8 +13,16 @@ export default function Settings() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState(null);
 
+  const { user, isAuthenticated, currentBusinessId, currentRole, businesses, switchBusiness, logout } = useAuth();
+  const { subscription, entitlementStatus, isReadOnly, statusMessage, getInstructions, submitProof } = useSubscription();
+
+  const [instructionsData, setInstructionsData] = useState(null);
+  const [proofForm, setProofForm] = useState({ planId: 'pro', reference: '', amount: '5000' });
+  const [proofSubmitting, setProofSubmitting] = useState(false);
+  const [proofFeedback, setProofFeedback] = useState(null);
+
   const pendingCount = usePendingSyncCount();
-  const shopId = getShopId();
+  const shopId = currentBusinessId || getShopId();
   const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
 
   // Local table counts
@@ -74,6 +84,43 @@ export default function Settings() {
     }
   };
 
+  const handleLoadInstructions = async () => {
+    try {
+      const data = await getInstructions();
+      setInstructionsData(data);
+      if (data?.paymentReference) {
+        setProofForm(prev => ({ ...prev, reference: data.paymentReference }));
+      }
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleSubmitPaymentProof = async (e) => {
+    e.preventDefault();
+    setProofSubmitting(true);
+    setProofFeedback(null);
+    try {
+      const amountKobo = Math.round(parseFloat(proofForm.amount) * 100);
+      await submitProof({
+        planId: proofForm.planId,
+        reference: proofForm.reference,
+        amount: amountKobo
+      });
+      setProofFeedback({
+        type: 'success',
+        message: `Proof for ${proofForm.reference} submitted successfully! Awaiting administrative review.`
+      });
+    } catch (err) {
+      setProofFeedback({
+        type: 'error',
+        message: err.message
+      });
+    } finally {
+      setProofSubmitting(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-4xl animate-in fade-in duration-200">
       {/* ------------------------------------------------------------------- */}
@@ -81,15 +128,67 @@ export default function Settings() {
       {/* ------------------------------------------------------------------- */}
       <div className="border-b border-slate-200 pb-2">
         <h3 className="text-xl font-bold text-slate-900 tracking-tight">System Settings & Profile</h3>
-        <p className="text-xs text-slate-500">Business configuration, offline storage metrics, and license status</p>
+        <p className="text-xs text-slate-500">Business configuration, multi-tenant RBAC, offline storage, and subscription</p>
       </div>
 
       {/* ------------------------------------------------------------------- */}
-      {/* 2. Business Profile Card */}
+      {/* 2. Authentication & Tenant Identity */}
+      {/* ------------------------------------------------------------------- */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6 space-y-4">
+        <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
+          <div>
+            <h4 className="text-base font-bold text-slate-900 tracking-tight">Merchant & Tenant Identity</h4>
+            <p className="text-xs text-slate-500">Authenticated user identity, business switching, and role boundaries</p>
+          </div>
+          <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
+            Role: <span className="uppercase text-emerald-700">{currentRole}</span>
+          </span>
+        </div>
+
+        <div className="space-y-3 text-xs text-slate-600">
+          <div className="flex justify-between py-1 border-b border-slate-100">
+            <span className="font-semibold text-slate-500">Active Business UUID:</span>
+            <span className="font-mono font-bold text-slate-900">{shopId}</span>
+          </div>
+
+          <div className="flex justify-between py-1 border-b border-slate-100">
+            <span className="font-semibold text-slate-500">Authenticated Account:</span>
+            <span className="font-bold text-slate-900">
+              {isAuthenticated ? `${user?.fullName} (${user?.email})` : 'Local Retail Device (Unlinked)'}
+            </span>
+          </div>
+
+          {businesses.length > 1 && (
+            <div className="pt-2">
+              <label className="font-bold text-slate-700 block mb-1">Switch Active Tenant:</label>
+              <select
+                value={currentBusinessId}
+                onChange={(e) => switchBusiness(e.target.value)}
+                className="w-full text-xs font-semibold p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none"
+              >
+                {businesses.map(b => (
+                  <option key={b.id} value={b.id}>{b.name} ({b.id})</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {isAuthenticated && (
+            <div className="pt-2 flex justify-end">
+              <Button variant="outline" size="sm" onClick={logout}>
+                Sign Out Merchant Session
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------------- */}
+      {/* 3. Business Profile Card */}
       {/* ------------------------------------------------------------------- */}
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6 space-y-4">
         <div className="border-b border-slate-100 pb-3">
-          <h4 className="text-base font-bold text-slate-900 tracking-tight">Business Identity</h4>
+          <h4 className="text-base font-bold text-slate-900 tracking-tight">Business Profile</h4>
           <p className="text-xs text-slate-500">Displayed on register receipts and customer reminders</p>
         </div>
 
@@ -143,7 +242,147 @@ export default function Settings() {
       </div>
 
       {/* ------------------------------------------------------------------- */}
-      {/* 3. Offline Storage & Local Database Health */}
+      {/* 4. Manual Subscription & Bank Transfer Entitlements (SBM-042) */}
+      {/* ------------------------------------------------------------------- */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6 space-y-4">
+        <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
+          <div>
+            <h4 className="text-base font-bold text-slate-900 tracking-tight">Subscription & Entitlements (SBM-042)</h4>
+            <p className="text-xs text-slate-500">Manual bank-transfer subscription workflow with offline entitlement protection</p>
+          </div>
+          <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
+            {subscription ? (
+              <span className={`uppercase font-extrabold ${entitlementStatus === 'active' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                {entitlementStatus.replace('_', ' ')}
+              </span>
+            ) : (
+              'Subscription Management Unconnected'
+            )}
+          </span>
+        </div>
+
+        <div className="space-y-3 text-xs text-slate-600">
+          <div className="flex justify-between py-1 border-b border-slate-100">
+            <span className="font-semibold text-slate-500">Subscription Status:</span>
+            <span className="font-bold text-slate-700">
+              {subscription ? entitlementStatus.replace('_', ' ') : 'Offline Evaluation (Billing Not Connected)'}
+            </span>
+          </div>
+
+          <div className="flex justify-between py-1 border-b border-slate-100">
+            <span className="font-semibold text-slate-500">Access Mode:</span>
+            <span className={`font-bold ${isReadOnly ? 'text-rose-600' : 'text-emerald-600'}`}>
+              {isReadOnly ? 'Read-Only (Subscribed writes locked)' : 'Read-Write (Full Access)'}
+            </span>
+          </div>
+
+          <div className="flex justify-between py-1 border-b border-slate-100">
+            <span className="font-semibold text-slate-500">Anti-Clock-Tampering Guard:</span>
+            <span className="font-mono text-slate-800">
+              {entitlementStatus === 'clock_tampered_locked' ? '🚨 Tampering Detected (Locked)' : '✓ Verified Synchronized'}
+            </span>
+          </div>
+
+          {subscription?.expiresAt && (
+            <div className="flex justify-between py-1 border-b border-slate-100">
+              <span className="font-semibold text-slate-500">Subscription Expiration:</span>
+              <span className="font-mono text-slate-800">
+                {new Date(subscription.expiresAt).toLocaleDateString()}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Dynamic Bank Instructions Trigger */}
+        <div className="pt-2">
+          {!instructionsData ? (
+            <Button variant="outline" size="sm" onClick={handleLoadInstructions}>
+              Get Dynamic Bank Payment Details (REF-SB-XXXX)
+            </Button>
+          ) : (
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                <span className="font-bold text-slate-800">Official Bank Transfer Instructions:</span>
+                <span className="font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                  {instructionsData.paymentReference}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 py-1">
+                <div>
+                  <span className="text-slate-500 block">Bank Name:</span>
+                  <span className="font-bold text-slate-800">{instructionsData.bankDetails.bankName}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Account Name:</span>
+                  <span className="font-bold text-slate-800">{instructionsData.bankDetails.accountName}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Account Number:</span>
+                  <span className="font-bold text-slate-800 font-mono">{instructionsData.bankDetails.accountNumber}</span>
+                </div>
+              </div>
+              <p className="text-2xs text-slate-500">
+                Include the reference code in your transfer description. After completing the transfer, submit proof below.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Payment Proof Submission Form */}
+        <form onSubmit={handleSubmitPaymentProof} className="pt-2 space-y-3">
+          <h5 className="text-xs font-bold text-slate-800">Submit Bank Transfer Proof</h5>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="text-2xs font-bold text-slate-600 block mb-1">Plan Tier</label>
+              <select
+                value={proofForm.planId}
+                onChange={(e) => setProofForm({ ...proofForm, planId: e.target.value, amount: e.target.value === 'enterprise' ? '15000' : '5000' })}
+                className="w-full text-xs font-semibold p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none"
+              >
+                <option value="pro">Pro Merchant (₦5,000 / mo)</option>
+                <option value="enterprise">Enterprise Multi-Shop (₦15,000 / mo)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-2xs font-bold text-slate-600 block mb-1">Payment Reference</label>
+              <input
+                type="text"
+                required
+                value={proofForm.reference}
+                onChange={(e) => setProofForm({ ...proofForm, reference: e.target.value })}
+                placeholder="REF-SB-XXXX"
+                className="w-full text-xs font-mono font-bold p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-2xs font-bold text-slate-600 block mb-1">Amount Paid (₦)</label>
+              <input
+                type="number"
+                required
+                value={proofForm.amount}
+                onChange={(e) => setProofForm({ ...proofForm, amount: e.target.value })}
+                className="w-full text-xs font-bold p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Button type="submit" variant="primary" size="sm" isLoading={proofSubmitting}>
+              Submit Transfer Proof for Verification
+            </Button>
+            {proofFeedback && (
+              <span className={`text-xs font-bold ${proofFeedback.type === 'success' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                {proofFeedback.message}
+              </span>
+            )}
+          </div>
+        </form>
+      </div>
+
+      {/* ------------------------------------------------------------------- */}
+      {/* 5. Offline Storage & Local Database Health */}
       {/* ------------------------------------------------------------------- */}
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6 space-y-4">
         <div className="border-b border-slate-100 pb-3">
@@ -197,7 +436,6 @@ export default function Settings() {
           </Button>
         </div>
 
-        {/* Sync Feedback Result Banner */}
         {syncFeedback && (
           <div
             className={`p-4 rounded-xl border text-xs space-y-1 animate-in fade-in ${
@@ -216,60 +454,6 @@ export default function Settings() {
             <p className="leading-relaxed">{syncFeedback.message}</p>
           </div>
         )}
-      </div>
-
-      {/* ------------------------------------------------------------------- */}
-      {/* 4. Subscription & Device Identity */}
-      {/* ------------------------------------------------------------------- */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6 space-y-4">
-        <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
-          <div>
-            <h4 className="text-base font-bold text-slate-900 tracking-tight">Device Identity & Subscription</h4>
-            <p className="text-xs text-slate-500">Local device identification and billing status</p>
-          </div>
-          <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
-            Subscription Management Unconnected
-          </span>
-        </div>
-
-        <div className="space-y-3 text-xs text-slate-600">
-          <div className="flex justify-between py-1 border-b border-slate-100">
-            <span className="font-semibold text-slate-500">Device Shop ID:</span>
-            <span className="font-mono font-bold text-slate-900">{shopId}</span>
-          </div>
-
-          <div className="flex justify-between py-1 border-b border-slate-100">
-            <span className="font-semibold text-slate-500">Subscription Status:</span>
-            <span className="font-bold text-slate-700">Offline Evaluation (Billing Not Connected)</span>
-          </div>
-
-          <div className="flex justify-between py-1 border-b border-slate-100">
-            <span className="font-semibold text-slate-500">Commercial Pricing:</span>
-            <span className="font-bold text-slate-500">Pending owner authorization</span>
-          </div>
-        </div>
-
-        <div className="pt-2 text-xs text-slate-500 bg-slate-50 p-3 rounded-xl border border-slate-200">
-          <p className="font-semibold text-slate-700">Subscription & Entitlements Notice:</p>
-          <p className="mt-0.5">
-            Commercial subscription plans, pricing tiers, and online billing are pending backend integration.
-            This installation operates in local-first retail mode without hardcoded price assumptions.
-          </p>
-        </div>
-      </div>
-
-      {/* ------------------------------------------------------------------- */}
-      {/* 5. Honest Architecture Boundary Notice */}
-      {/* ------------------------------------------------------------------- */}
-      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 text-xs text-slate-600 space-y-1.5">
-        <p className="font-bold text-slate-800">
-          Architecture Milestone: Frontend Redesign & Remediation (FE-01R)
-        </p>
-        <p className="leading-relaxed text-slate-500">
-          This installation operates in local-first retail mode with automatic Dexie persistence.
-          Server-side authentication (Argon2id + RS256 JWT refresh token lifecycle) has completed backend foundations;
-          centralized merchant login, multi-tenant RBAC, and subscription administration will be integrated in subsequent authorized phases.
-        </p>
       </div>
     </div>
   );

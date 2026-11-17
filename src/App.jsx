@@ -15,23 +15,26 @@ import { isTrialExpired, getShopId } from './utils/shopIdentity.js';
 import ExpiredPaywall from './components/ExpiredPaywall.jsx';
 import LandingPage from './components/LandingPage.jsx';
 import Button from './components/common/Button.jsx';
+import { AuthProvider, useAuth } from './context/AuthContext.jsx';
+import { SubscriptionProvider, useSubscription } from './context/SubscriptionContext.jsx';
 
-export default function App() {
-  // Initialize the offline background sync engine
+function MainApp() {
   useBackgroundSync();
 
   const [isSetup, setIsSetup] = useState(() => Boolean(localStorage.getItem('shopName')));
   const [activeTab, setActiveTab] = useState('overview');
   const isExpired = isTrialExpired();
+  const { currentBusinessId, currentRole } = useAuth();
+  const { isReadOnly, entitlementStatus } = useSubscription();
 
   // Onboarding Gate: Prompt initial setup if no shopName is configured
   if (!isSetup) {
     return <LandingPage onComplete={() => setIsSetup(true)} />;
   }
 
-  // Hard Paywall Gate: Completely lock app if trial has expired
-  if (isExpired) {
-    return <ExpiredPaywall shopId={getShopId()} />;
+  // Hard Paywall Gate: Completely lock app if trial has expired and no subscription
+  if (isExpired && entitlementStatus !== 'active' && entitlementStatus !== 'in_grace_period') {
+    return <ExpiredPaywall shopId={currentBusinessId || getShopId()} />;
   }
 
   // Header quick action button depending on active module
@@ -81,13 +84,23 @@ export default function App() {
     >
       {activeTab === 'overview' && <Overview onNavigate={setActiveTab} />}
       {activeTab === 'business_book' && <BusinessBook onNavigate={setActiveTab} />}
-      {activeTab === 'pos' && <PointOfSale />}
-      {activeTab === 'expenses' && <Expenses />}
-      {activeTab === 'inventory' && <Inventory />}
-      {activeTab === 'customers' && <Customers onNavigate={setActiveTab} />}
-      {activeTab === 'credit_book' && <CreditBook />}
+      {activeTab === 'pos' && <PointOfSale isReadOnly={isReadOnly} />}
+      {activeTab === 'expenses' && <Expenses isReadOnly={isReadOnly} />}
+      {activeTab === 'inventory' && <Inventory isReadOnly={isReadOnly} />}
+      {activeTab === 'customers' && <Customers onNavigate={setActiveTab} isReadOnly={isReadOnly} />}
+      {activeTab === 'credit_book' && <CreditBook isReadOnly={isReadOnly} />}
       {activeTab === 'reports' && <Reports />}
       {activeTab === 'settings' && <Settings />}
     </AppShell>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <SubscriptionProvider>
+        <MainApp />
+      </SubscriptionProvider>
+    </AuthProvider>
   );
 }

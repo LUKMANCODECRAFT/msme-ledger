@@ -9,7 +9,7 @@ import StatCard from '../components/common/StatCard.jsx';
 import EmptyState from '../components/common/EmptyState.jsx';
 import { SyncStatusBadge } from '../components/common/Badge.jsx';
 
-export default function CreditBook() {
+export default function CreditBook({ isReadOnly = false }) {
   const [activeSubTab, setActiveSubTab] = useState('DEBTORS'); // 'DEBTORS' | 'HISTORY'
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -63,6 +63,10 @@ export default function CreditBook() {
   // Handle Record Repayment
   const handleRecordRepayment = async (e) => {
     e.preventDefault();
+    if (isReadOnly) {
+      alert('Application is in read-only mode due to subscription status. Recording repayments is locked.');
+      return;
+    }
     if (!selectedDebtor) return;
 
     const parsedNaira = parseFloat(repaymentAmountNaira);
@@ -99,6 +103,10 @@ export default function CreditBook() {
 
   // Handle Full Clear Debt
   const handleClearDebt = async (debtor) => {
+    if (isReadOnly) {
+      alert('Application is in read-only mode due to subscription status. Debt clearance is locked.');
+      return;
+    }
     if (window.confirm(`Has "${debtor.name}" fully cleared their debt of ${formatNaira(debtor.totalDebt)}?`)) {
       try {
         await clearCustomerDebt({

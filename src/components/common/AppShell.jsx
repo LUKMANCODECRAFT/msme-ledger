@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { usePendingSyncCount } from '../../config/db.js';
 import { pushPendingData } from '../../services/syncService.js';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { useSubscription } from '../../context/SubscriptionContext.jsx';
 
 export const MODULE_ITEMS = [
   {
@@ -101,6 +103,8 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
   const pendingCount = usePendingSyncCount();
   const shopName = localStorage.getItem('shopName') || 'MSME Ledger Store';
   const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+  const { user, currentRole } = useAuth();
+  const { entitlementStatus, isReadOnly, statusMessage } = useSubscription();
 
   const currentModule = MODULE_ITEMS.find(m => m.id === activeTab) || MODULE_ITEMS[0];
 
@@ -138,8 +142,33 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
               </h1>
               <p className="text-xs text-slate-400 truncate flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                <span className="truncate">{shopName}</span>
+                <span className="truncate">{user?.fullName ? `${user.fullName}'s Shop` : shopName}</span>
               </p>
+              <div className="flex items-center gap-1.5 mt-1.5">
+                <span className="text-2xs font-bold uppercase px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                  {currentRole}
+                </span>
+                {entitlementStatus === 'active' && (
+                  <span className="text-2xs font-extrabold uppercase px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700">
+                    PRO
+                  </span>
+                )}
+                {entitlementStatus === 'in_grace_period' && (
+                  <span className="text-2xs font-extrabold uppercase px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-700">
+                    GRACE
+                  </span>
+                )}
+                {entitlementStatus === 'expired' && (
+                  <span className="text-2xs font-extrabold uppercase px-1.5 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-700">
+                    EXPIRED
+                  </span>
+                )}
+                {entitlementStatus === 'clock_tampered_locked' && (
+                  <span className="text-2xs font-extrabold uppercase px-1.5 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-800">
+                    CLOCK LOCKED
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -347,6 +376,17 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
         </header>
 
         {/* Module Body Content */}
+        {isReadOnly && (
+          <div className="bg-rose-50 border-b border-rose-200 text-rose-800 text-xs px-4 py-2.5 font-semibold flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <span>⚠️</span>
+              <span><strong>Read-Only Mode:</strong> {statusMessage}</span>
+            </span>
+            <span className="text-2xs uppercase tracking-wider font-extrabold px-2 py-0.5 rounded bg-rose-100 text-rose-900 border border-rose-300">
+              {entitlementStatus}
+            </span>
+          </div>
+        )}
         <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto">
           {children}
         </main>

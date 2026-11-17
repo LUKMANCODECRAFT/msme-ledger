@@ -8,7 +8,7 @@ import Modal from '../components/common/Modal.jsx';
 import StatCard from '../components/common/StatCard.jsx';
 import EmptyState from '../components/common/EmptyState.jsx';
 
-export default function Customers({ onNavigate }) {
+export default function Customers({ onNavigate, isReadOnly = false }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [debtFilter, setDebtFilter] = useState('ALL'); // 'ALL' | 'DEBTORS' | 'CLEAN'
 
@@ -55,6 +55,10 @@ export default function Customers({ onNavigate }) {
   // Handle Add Customer
   const handleAddCustomerSubmit = async (e) => {
     e.preventDefault();
+    if (isReadOnly) {
+      alert('Application is in read-only mode due to subscription status. Adding customers is locked.');
+      return;
+    }
     if (!name.trim() || !phone.trim()) return;
 
     setIsSubmitting(true);
@@ -76,6 +80,10 @@ export default function Customers({ onNavigate }) {
   // Handle Record Repayment (Preserving financial distinction: Repayments are NOT new sales!)
   const handleRecordRepaymentSubmit = async (e) => {
     e.preventDefault();
+    if (isReadOnly) {
+      alert('Application is in read-only mode due to subscription status. Recording repayments is locked.');
+      return;
+    }
     if (!selectedDebtor) return;
 
     const parsedNaira = parseFloat(repaymentAmountNaira);

@@ -6,8 +6,13 @@ import StatCard from '../components/common/StatCard.jsx';
 import Button from '../components/common/Button.jsx';
 import { PaymentStatusBadge } from '../components/common/Badge.jsx';
 import EmptyState from '../components/common/EmptyState.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
+import { useSubscription } from '../context/SubscriptionContext.jsx';
 
 export default function Overview({ onNavigate }) {
+  const { currentRole, currentBusinessId } = useAuth();
+  const { entitlementStatus } = useSubscription();
+
   // Live queries across actual stores
   const sales = useLiveQuery(() => msme_ledger_db.sales.toArray()) || [];
   const customers = useLiveQuery(() => msme_ledger_db.customers.toArray()) || [];
@@ -98,9 +103,14 @@ export default function Overview({ onNavigate }) {
       {/* ------------------------------------------------------------------- */}
       <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-2xl p-6 text-white shadow-md flex flex-col md:flex-row md:items-center md:justify-between gap-6 border border-slate-700/60">
         <div className="space-y-1.5 max-w-xl">
-          <span className="text-2xs font-bold tracking-widest uppercase text-emerald-400 bg-emerald-950/80 px-2.5 py-1 rounded-md border border-emerald-800/80">
-            Retail Operations
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-2xs font-bold tracking-widest uppercase text-emerald-400 bg-emerald-950/80 px-2.5 py-1 rounded-md border border-emerald-800/80">
+              Retail Operations • {currentRole.toUpperCase()}
+            </span>
+            <span className="text-2xs font-bold tracking-widest uppercase text-slate-300 bg-slate-800/80 px-2.5 py-1 rounded-md border border-slate-700">
+              Plan: {entitlementStatus.toUpperCase()}
+            </span>
+          </div>
           <h2 className="text-xl md:text-2xl font-black tracking-tight text-white">
             Daily Financial & Sales Pulse
           </h2>

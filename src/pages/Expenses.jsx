@@ -9,7 +9,7 @@ import StatCard from '../components/common/StatCard.jsx';
 import Badge from '../components/common/Badge.jsx';
 import EmptyState from '../components/common/EmptyState.jsx';
 
-export default function Expenses() {
+export default function Expenses({ isReadOnly = false }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [expenseOperationId, setExpenseOperationId] = useState(() => `op_ui_exp_${crypto.randomUUID()}`);
   const [category, setCategory] = useState(EXPENSE_CATEGORIES[0]);
@@ -45,6 +45,10 @@ export default function Expenses() {
 
   const handleCreateExpense = async (e) => {
     e.preventDefault();
+    if (isReadOnly) {
+      alert('Application is in read-only mode due to subscription status. Expense recording is locked.');
+      return;
+    }
     const parsedNaira = parseFloat(amountNaira);
     if (isNaN(parsedNaira) || parsedNaira <= 0) {
       alert('Please enter a valid positive expense amount.');
