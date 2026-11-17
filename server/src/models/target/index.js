@@ -6,4 +6,5 @@ export * from './expenseFinancialModels.js';
 export * from './refreshTokenModel.js';
 export * from './authModels.js';
 export * from './auditLogModel.js';
+export * from './subscriptionModel.js';
 
