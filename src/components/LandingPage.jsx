@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import Onboarding from './Onboarding.jsx';
+import BrandLogo from './common/BrandLogo.jsx';
+import AuthModal from './common/AuthModal.jsx';
 
 export default function LandingPage({ onComplete, onLaunchApp }) {
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
   const [activeGuideStep, setActiveGuideStep] = useState(0);
-  const [activeModuleIndex, setActiveModuleIndex] = useState(0);
   const [openFaqIndex, setOpenFaqIndex] = useState(null);
   const [existingShopName, setExistingShopName] = useState(null);
 
@@ -38,6 +40,7 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
           if (typeof onComplete === 'function') onComplete();
           if (typeof onLaunchApp === 'function') onLaunchApp();
         }}
+        onCancel={() => setShowOnboarding(false)}
       />
     );
   }
@@ -51,9 +54,9 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
       summary: 'Set up your retail business instantly with zero friction.',
       details:
         'Enter your shop name once. Your local, private database is immediately created inside your browser or device storage. No credit card, no personal phone verification, and no upfront payment required.',
-      actionHint: 'Click "Start Setup" to initialize your local store catalog in seconds.',
+      actionHint: 'Click "Start Free Setup" to initialize your local store catalog in seconds.',
       icon: (
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
         </svg>
       )
@@ -67,7 +70,7 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
         'Open the Inventory tab to enter product names, selling prices in Naira, and opening stock counts. The system supports whole retail pieces and fractional quantities (e.g. fertilizer, grains, liquids) with automatic low-stock alerts.',
       actionHint: 'Go to Inventory → "+ Add Product" to add items with selling prices and stock.',
       icon: (
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
         </svg>
       )
@@ -81,7 +84,7 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
         'On the POS screen, tap items to add to the cart. Select an existing customer or add a new one. Choose whether the customer pays in Full Cash, Bank Transfer, or takes goods on Credit / Part-Payment. Stock is automatically deducted.',
       actionHint: 'Go to Sales / POS → Tap items → Select Customer → Click Checkout.',
       icon: (
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
         </svg>
       )
@@ -95,7 +98,7 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
         'Open the Credit Book tab to see every customer with an outstanding balance. Tap the green WhatsApp button next to any debtor. MSME Ledger instantly generates a polite, personalized message with their exact debt amount and your bank details.',
       actionHint: 'Go to Credit Book → Find debtor → Tap WhatsApp icon to send payment reminder.',
       icon: (
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
         </svg>
       )
@@ -109,59 +112,96 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
         'Record everyday shop overheads—like generator fuel, shop rent, logistics, and vendor restocking—in the Expenses tab. Check the Overview dashboard at closing time to review total revenue, profit margins, and pending cloud sync status.',
       actionHint: 'Review Overview at closing time to see today’s total sales and net profit.',
       icon: (
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
         </svg>
       )
     }
   ];
 
-  // 9 Integrated Modules Overview
+  // 9 Integrated Modules with Clean Vector SVGs (No Emojis)
   const MODULES = [
     {
       name: 'Overview Dashboard',
       description: 'Your morning and evening business cockpit: real-time sales revenue, gross margin, credit receivables, and recent transaction stream.',
-      icon: '📊'
+      icon: (
+        <svg className="w-6 h-6 text-[#1B4332]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+        </svg>
+      )
     },
     {
       name: 'Sales / Point of Sale',
       description: 'Fast barcode or touchscreen cashier register. Build shopping carts, apply discounts, select customers, and ring up sales in seconds.',
-      icon: '🛒'
+      icon: (
+        <svg className="w-6 h-6 text-[#1B4332]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+        </svg>
+      )
     },
     {
       name: 'Credit Book',
       description: 'Receivables management engine. Track customer credit balances in exact Kobo and generate 1-click WhatsApp payment reminders.',
-      icon: '📒'
+      icon: (
+        <svg className="w-6 h-6 text-[#1B4332]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+        </svg>
+      )
     },
     {
       name: 'Inventory Control',
       description: 'High-precision stock ledger with scale-1000 support for fractional units, low-stock reorder warnings, and durable stock movements.',
-      icon: '📦'
+      icon: (
+        <svg className="w-6 h-6 text-[#1B4332]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+        </svg>
+      )
     },
     {
       name: 'Business Activity Book',
       description: 'An immutable, chronological log of every sale, customer payment, credit extension, and stock adjustment.',
-      icon: '📑'
+      icon: (
+        <svg className="w-6 h-6 text-[#1B4332]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+        </svg>
+      )
     },
     {
       name: 'Customer Directory',
       description: 'Full customer contact rolodex, cumulative lifetime spend, individual debt balances, and past sales histories.',
-      icon: '👥'
+      icon: (
+        <svg className="w-6 h-6 text-[#1B4332]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+        </svg>
+      )
     },
     {
       name: 'Expense Ledger',
       description: 'Categorized overhead tracking for shop rent, generator diesel, transport, wages, and vendor restocking.',
-      icon: '💸'
+      icon: (
+        <svg className="w-6 h-6 text-[#1B4332]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+        </svg>
+      )
     },
     {
       name: 'Financial Reports',
       description: 'Clean financial statements, profit & loss analysis, product sales volume breakdowns, and inventory valuation.',
-      icon: '📈'
+      icon: (
+        <svg className="w-6 h-6 text-[#1B4332]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+      )
     },
     {
       name: 'Settings & Security',
       description: 'Store identity, offline database backups, manual bank-transfer subscriptions, and tenant collaboration settings.',
-      icon: '⚙️'
+      icon: (
+        <svg className="w-6 h-6 text-[#1B4332]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+      )
     }
   ];
 
@@ -169,7 +209,7 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
   const FAQS = [
     {
       q: 'Does MSME Ledger really work 100% without internet?',
-      a: 'Yes! Unlike conventional web applications that freeze when the network drops, MSME Ledger is built offline-first. Your entire catalog, customer balances, and sales register live directly on your local device database (IndexedDB). You can ring up sales, add stock, and log expenses in deep rural markets with zero internet connectivity.'
+      a: 'Yes. Unlike conventional web applications that freeze when the network drops, MSME Ledger is built offline-first. Your entire catalog, customer balances, and sales register live directly on your local device database (IndexedDB). You can ring up sales, add stock, and log expenses in rural markets with zero internet connectivity.'
     },
     {
       q: 'How does debt recovery over WhatsApp work?',
@@ -181,39 +221,37 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
     },
     {
       q: 'How does subscription payment work? Are there recurring card charges?',
-      a: 'We strictly reject automated recurring card debits. Subscriptions are handled via transparent manual bank transfer. You request dynamic instructions with a unique reference code (REF-SB-XXXX), transfer directly from your bank app, and submit your reference. Once verified by our team, your offline entitlement token is issued.'
+      a: 'We strictly reject automated recurring card debits. Subscriptions are handled via transparent manual bank transfer. You request dynamic instructions with a unique reference code, transfer directly from your bank app, and submit your reference. Once verified by our team, your offline entitlement token is issued.'
     },
     {
-      q: 'Can multiple cashiers or staff use the app simultaneously?',
-      a: 'Yes! MSME Ledger features multi-tenant role authorization (Owner, Manager, Cashier, Accountant). Staff can ring up sales while keeping sensitive financial reports and owner settings protected.'
+      q: 'Are we supposed to have a login page, or can I use it offline?',
+      a: 'You can do both! For normal everyday selling, you do NOT have to log in—it runs 100% offline with zero setup. If you want to sync between multiple devices (like a cashier tablet and owner phone) or invite staff with roles (Owner, Manager, Cashier), you can sign in anytime via the Account button.'
     }
   ];
 
   return (
-    <div className="min-h-screen bg-[#FDFBF7] text-[#1E2321] font-sans selection:bg-[#D8ECE1] selection:text-[#1B4332]">
+    <div className="min-h-screen bg-[#FDFBF7] text-[#1E2321] font-sans selection:bg-[#D8ECE1] selection:text-[#1B4332] overflow-x-hidden">
       {/* --------------------------------------------------------------------- */}
       {/* 1. Top Navigation Bar */}
       {/* --------------------------------------------------------------------- */}
       <header className="sticky top-0 z-50 bg-[#FDFBF7]/95 backdrop-blur-md border-b border-[#E5DCC5]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between gap-3">
           {/* Brand Logo & Name */}
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-[#1B4332] text-[#FDFBF7] flex items-center justify-center font-black text-xl shadow-md border border-[#143621]">
-              ₦
-            </div>
-            <div>
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <BrandLogo size={36} />
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-xl font-black text-[#1E2321] tracking-tight">MSME Ledger</span>
-                <span className="text-2xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#D8ECE1] text-[#1B4332] border border-[#B2DAC5]">
+                <span className="text-base sm:text-xl font-black text-[#1E2321] tracking-tight truncate">MSME Ledger</span>
+                <span className="hidden sm:inline-block text-2xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#D8ECE1] text-[#1B4332] border border-[#B2DAC5]">
                   Offline-First
                 </span>
               </div>
-              <p className="text-xs text-[#5C6460] font-medium hidden sm:block">Smart Retail Ledger & POS Operating System</p>
+              <p className="text-xs text-[#5C6460] font-medium hidden md:block">Smart Retail Ledger &amp; POS Operating System</p>
             </div>
           </div>
 
           {/* Quick Nav Anchor Links */}
-          <nav className="hidden md:flex items-center gap-8 text-sm font-bold text-[#5C6460]">
+          <nav className="hidden lg:flex items-center gap-7 text-sm font-bold text-[#5C6460]">
             <a href="#about" className="hover:text-[#1B4332] transition-colors">What It Is</a>
             <a href="#how-to-use" className="hover:text-[#1B4332] transition-colors">How To Use</a>
             <a href="#modules" className="hover:text-[#1B4332] transition-colors">Modules</a>
@@ -223,30 +261,27 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
           </nav>
 
           {/* Action CTAs */}
-          <div className="flex items-center gap-3">
-            {existingShopName ? (
-              <button
-                type="button"
-                onClick={handlePrimaryAction}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#1B4332] text-[#FDFBF7] text-sm font-bold shadow-md hover:bg-[#22573F] active:bg-[#143621] transition-all transform active:scale-95"
-              >
-                <span>Open {existingShopName}</span>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                </svg>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handlePrimaryAction}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#1B4332] text-[#FDFBF7] text-sm font-bold shadow-md hover:bg-[#22573F] active:bg-[#143621] transition-all transform active:scale-95"
-              >
-                <span>Launch App Free</span>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                </svg>
-              </button>
-            )}
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            {/* Account / Sign In Trigger */}
+            <button
+              type="button"
+              onClick={() => setAuthModalOpen(true)}
+              className="px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold text-[#141816] hover:bg-[#F3EDE0] transition-colors border border-[#E5DCC5]"
+            >
+              Sign In
+            </button>
+
+            {/* Launch App Button */}
+            <button
+              type="button"
+              onClick={handlePrimaryAction}
+              className="inline-flex items-center gap-1.5 sm:gap-2 px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl bg-[#1B4332] text-[#FDFBF7] text-xs sm:text-sm font-bold shadow-md hover:bg-[#22573F] active:bg-[#143621] transition-all transform active:scale-95 border border-[#143621]"
+            >
+              <span>{existingShopName ? `Open ${existingShopName}` : 'Launch App Free'}</span>
+              <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+              </svg>
+            </button>
           </div>
         </div>
       </header>
@@ -254,70 +289,76 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
       {/* --------------------------------------------------------------------- */}
       {/* 2. Hero Section */}
       {/* --------------------------------------------------------------------- */}
-      <section className="relative pt-12 pb-20 md:pt-20 md:pb-28 overflow-hidden bg-gradient-to-b from-[#FDFBF7] via-[#F7F4EB] to-[#FDFBF7] border-b border-[#E5DCC5]">
+      <section className="relative pt-10 pb-16 sm:pt-16 sm:pb-24 md:pt-20 md:pb-28 overflow-hidden bg-gradient-to-b from-[#FDFBF7] via-[#F7F4EB] to-[#FDFBF7] border-b border-[#E5DCC5]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           {/* Announcement Badge */}
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#D8ECE1] text-[#1B4332] border border-[#B2DAC5] text-xs font-black tracking-wide uppercase mb-6 shadow-xs">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#D8ECE1] text-[#1B4332] border border-[#B2DAC5] text-2xs sm:text-xs font-black tracking-wide uppercase mb-6 shadow-xs">
             <span className="w-2 h-2 rounded-full bg-[#1B4332] animate-pulse"></span>
             Zero Internet Needed • Built for Retail MSMEs
           </div>
 
           {/* Main Headline */}
-          <h1 className="text-4xl sm:text-5xl md:text-6xl font-black text-[#141816] tracking-tight leading-[1.15] mb-6 max-w-4xl mx-auto">
+          <h1 className="text-3xl sm:text-5xl md:text-6xl font-black text-[#141816] tracking-tight leading-[1.15] mb-5 sm:mb-6 max-w-4xl mx-auto">
             Say Goodbye to Lost Debt Books and Missing Inventory.
           </h1>
 
           {/* Subtitle */}
-          <p className="text-lg sm:text-xl text-[#363C39] font-medium max-w-3xl mx-auto leading-relaxed mb-10">
+          <p className="text-base sm:text-xl text-[#363C39] font-medium max-w-3xl mx-auto leading-relaxed mb-8 sm:mb-10">
             MSME Ledger is the offline-first operating system for retail stores, agro-dealers, and small merchants.
             Ring up sales in seconds without internet, track stock with milligram precision, and recover customer debts over WhatsApp with a single click.
           </p>
 
           {/* Primary Action Buttons */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 max-w-md mx-auto mb-14">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5 max-w-md mx-auto mb-12 sm:mb-14">
             <button
               type="button"
               onClick={handlePrimaryAction}
-              className="w-full sm:w-auto px-8 py-4 rounded-xl bg-[#1B4332] text-[#FDFBF7] text-lg font-black shadow-lg hover:bg-[#22573F] active:bg-[#143621] transition-all transform active:scale-95 border border-[#143621]"
+              className="w-full sm:w-auto px-7 py-3.5 sm:py-4 rounded-xl bg-[#1B4332] text-[#FDFBF7] text-base sm:text-lg font-black shadow-lg hover:bg-[#22573F] active:bg-[#143621] transition-all transform active:scale-95 border border-[#143621]"
             >
               {existingShopName ? `Go to ${existingShopName} Dashboard` : 'Start Free 30-Day Setup'}
             </button>
             <a
               href="#how-to-use"
-              className="w-full sm:w-auto px-7 py-4 rounded-xl bg-[#F7F4EB] text-[#1E2321] text-base font-bold border border-[#E5DCC5] hover:bg-[#EFE9DA] hover:border-[#D5C8AB] transition-colors text-center"
+              className="w-full sm:w-auto px-6 py-3.5 sm:py-4 rounded-xl bg-[#F7F4EB] text-[#1E2321] text-sm sm:text-base font-bold border border-[#E5DCC5] hover:bg-[#EFE9DA] hover:border-[#D5C8AB] transition-colors text-center"
             >
-              How It Works ↓
+              How It Works
             </a>
           </div>
 
-          {/* 3 Core Value Pillars */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto text-left">
-            <div className="bg-[#FAF6EE] p-6 rounded-2xl border border-[#E5DCC5] shadow-xs hover:border-[#1B4332] transition-colors">
-              <div className="w-10 h-10 rounded-lg bg-[#D8ECE1] text-[#1B4332] flex items-center justify-center font-bold text-lg mb-3">
-                ⚡
+          {/* 3 Core Value Pillars with Clean Vector SVGs */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 max-w-4xl mx-auto text-left">
+            <div className="bg-[#FAF6EE] p-5 sm:p-6 rounded-2xl border border-[#E5DCC5] shadow-xs hover:border-[#1B4332] transition-colors">
+              <div className="w-10 h-10 rounded-xl bg-[#D8ECE1] text-[#1B4332] flex items-center justify-center font-bold text-lg mb-3">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
               </div>
-              <h3 className="font-black text-[#141816] text-lg mb-1">100% Offline-First</h3>
-              <p className="text-[#5C6460] text-sm font-medium leading-normal">
+              <h3 className="font-black text-[#141816] text-base sm:text-lg mb-1">100% Offline-First</h3>
+              <p className="text-[#5C6460] text-xs sm:text-sm font-medium leading-normal">
                 Never stop selling when power goes out or telecom networks fail. All transactions save locally to your device immediately.
               </p>
             </div>
 
-            <div className="bg-[#FAF6EE] p-6 rounded-2xl border border-[#E5DCC5] shadow-xs hover:border-[#1B4332] transition-colors">
-              <div className="w-10 h-10 rounded-lg bg-[#D8ECE1] text-[#1B4332] flex items-center justify-center font-bold text-lg mb-3">
-                💬
+            <div className="bg-[#FAF6EE] p-5 sm:p-6 rounded-2xl border border-[#E5DCC5] shadow-xs hover:border-[#1B4332] transition-colors">
+              <div className="w-10 h-10 rounded-xl bg-[#D8ECE1] text-[#1B4332] flex items-center justify-center font-bold text-lg mb-3">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
               </div>
-              <h3 className="font-black text-[#141816] text-lg mb-1">WhatsApp Debt Recovery</h3>
-              <p className="text-[#5C6460] text-sm font-medium leading-normal">
+              <h3 className="font-black text-[#141816] text-base sm:text-lg mb-1">WhatsApp Debt Recovery</h3>
+              <p className="text-[#5C6460] text-xs sm:text-sm font-medium leading-normal">
                 No more awkward calls or forgotten balances. Send polite, formatted WhatsApp reminders with your shop bank account in 1 tap.
               </p>
             </div>
 
-            <div className="bg-[#FAF6EE] p-6 rounded-2xl border border-[#E5DCC5] shadow-xs hover:border-[#1B4332] transition-colors">
-              <div className="w-10 h-10 rounded-lg bg-[#D8ECE1] text-[#1B4332] flex items-center justify-center font-bold text-lg mb-3">
-                🔒
+            <div className="bg-[#FAF6EE] p-5 sm:p-6 rounded-2xl border border-[#E5DCC5] shadow-xs hover:border-[#1B4332] transition-colors">
+              <div className="w-10 h-10 rounded-xl bg-[#D8ECE1] text-[#1B4332] flex items-center justify-center font-bold text-lg mb-3">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
               </div>
-              <h3 className="font-black text-[#141816] text-lg mb-1">Zero Card Auto-Debits</h3>
-              <p className="text-[#5C6460] text-sm font-medium leading-normal">
+              <h3 className="font-black text-[#141816] text-base sm:text-lg mb-1">Zero Card Auto-Debits</h3>
+              <p className="text-[#5C6460] text-xs sm:text-sm font-medium leading-normal">
                 We believe in merchant sovereignty. No hidden recurring card deductions. Subscriptions use transparent manual bank transfer.
               </p>
             </div>
@@ -328,115 +369,127 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
       {/* --------------------------------------------------------------------- */}
       {/* 3. "What is MSME Ledger?" (Explaining what the site is about) */}
       {/* --------------------------------------------------------------------- */}
-      <section id="about" className="py-20 bg-[#FDFBF7] border-b border-[#E5DCC5]">
+      <section id="about" className="py-16 sm:py-20 bg-[#FDFBF7] border-b border-[#E5DCC5]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-3xl mx-auto mb-16">
-            <span className="text-xs font-black uppercase tracking-wider text-[#1B4332] bg-[#D8ECE1] px-3 py-1 rounded-full border border-[#B2DAC5]">
+          <div className="text-center max-w-3xl mx-auto mb-12 sm:mb-16">
+            <span className="text-2xs sm:text-xs font-black uppercase tracking-wider text-[#1B4332] bg-[#D8ECE1] px-3 py-1 rounded-full border border-[#B2DAC5]">
               What Is MSME Ledger?
             </span>
-            <h2 className="text-3xl sm:text-4xl font-black text-[#141816] mt-4 mb-4 tracking-tight">
+            <h2 className="text-2xl sm:text-4xl font-black text-[#141816] mt-3 sm:mt-4 mb-3 sm:mb-4 tracking-tight">
               A Complete Business Operating System for African Merchants
             </h2>
-            <p className="text-base sm:text-lg text-[#5C6460] font-medium leading-relaxed">
+            <p className="text-sm sm:text-lg text-[#5C6460] font-medium leading-relaxed">
               Paper notebooks get water-damaged, lost, or misplaced. Spreadsheets are too complex for busy checkout counters.
               MSME Ledger gives you the speed of a modern cash register with the precision of an audited accounting ledger.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
             {/* Feature 1 */}
-            <div className="bg-[#FAF6EE] p-8 rounded-2xl border border-[#E5DCC5] flex flex-col justify-between hover:shadow-md transition-shadow">
+            <div className="bg-[#FAF6EE] p-6 sm:p-8 rounded-2xl border border-[#E5DCC5] flex flex-col justify-between hover:shadow-md transition-shadow">
               <div>
                 <div className="w-12 h-12 rounded-xl bg-[#1B4332] text-[#FDFBF7] flex items-center justify-center font-black text-xl mb-5">
-                  🛒
+                  <svg className="w-6 h-6 text-[#FDFBF7]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
                 </div>
-                <h3 className="text-xl font-black text-[#141816] mb-2">Fast Point of Sale (POS)</h3>
-                <p className="text-[#363C39] text-sm leading-relaxed mb-4">
+                <h3 className="text-lg sm:text-xl font-black text-[#141816] mb-2">Fast Point of Sale (POS)</h3>
+                <p className="text-[#363C39] text-xs sm:text-sm leading-relaxed mb-4">
                   Cashiers can add items to carts, calculate change, apply discounts, and split payments across cash, bank transfer, and credit within seconds.
                 </p>
               </div>
-              <div className="pt-4 border-t border-[#E5DCC5] text-xs font-bold text-[#1B4332] flex items-center gap-1">
-                <span>Instant receipts & cart totals</span>
+              <div className="pt-4 border-t border-[#E5DCC5] text-xs font-bold text-[#1B4332]">
+                Instant receipts &amp; cart totals
               </div>
             </div>
 
             {/* Feature 2 */}
-            <div className="bg-[#FAF6EE] p-8 rounded-2xl border border-[#E5DCC5] flex flex-col justify-between hover:shadow-md transition-shadow">
+            <div className="bg-[#FAF6EE] p-6 sm:p-8 rounded-2xl border border-[#E5DCC5] flex flex-col justify-between hover:shadow-md transition-shadow">
               <div>
                 <div className="w-12 h-12 rounded-xl bg-[#1B4332] text-[#FDFBF7] flex items-center justify-center font-black text-xl mb-5">
-                  📒
+                  <svg className="w-6 h-6 text-[#FDFBF7]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                  </svg>
                 </div>
-                <h3 className="text-xl font-black text-[#141816] mb-2">Customer Credit Book</h3>
-                <p className="text-[#363C39] text-sm leading-relaxed mb-4">
+                <h3 className="text-lg sm:text-xl font-black text-[#141816] mb-2">Customer Credit Book</h3>
+                <p className="text-[#363C39] text-xs sm:text-sm leading-relaxed mb-4">
                   Track customer debt down to the exact Kobo. Records who took what, when it was taken, and how much has been repaid. Eliminate disputes forever.
                 </p>
               </div>
-              <div className="pt-4 border-t border-[#E5DCC5] text-xs font-bold text-[#1B4332] flex items-center gap-1">
-                <span>Zero forgotten receivables</span>
+              <div className="pt-4 border-t border-[#E5DCC5] text-xs font-bold text-[#1B4332]">
+                Zero forgotten receivables
               </div>
             </div>
 
             {/* Feature 3 */}
-            <div className="bg-[#FAF6EE] p-8 rounded-2xl border border-[#E5DCC5] flex flex-col justify-between hover:shadow-md transition-shadow">
+            <div className="bg-[#FAF6EE] p-6 sm:p-8 rounded-2xl border border-[#E5DCC5] flex flex-col justify-between hover:shadow-md transition-shadow">
               <div>
                 <div className="w-12 h-12 rounded-xl bg-[#1B4332] text-[#FDFBF7] flex items-center justify-center font-black text-xl mb-5">
-                  📦
+                  <svg className="w-6 h-6 text-[#FDFBF7]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                  </svg>
                 </div>
-                <h3 className="text-xl font-black text-[#141816] mb-2">Scale-1000 Precision Stock</h3>
-                <p className="text-[#363C39] text-sm leading-relaxed mb-4">
+                <h3 className="text-lg sm:text-xl font-black text-[#141816] mb-2">Scale-1000 Precision Stock</h3>
+                <p className="text-[#363C39] text-xs sm:text-sm leading-relaxed mb-4">
                   Engineered for agricultural and bulk retail. Supports fractional quantities (milligrams, grams, kilograms, liters) with tamper-resistant stock deductions.
                 </p>
               </div>
-              <div className="pt-4 border-t border-[#E5DCC5] text-xs font-bold text-[#1B4332] flex items-center gap-1">
-                <span>Scale-1000 integer math</span>
+              <div className="pt-4 border-t border-[#E5DCC5] text-xs font-bold text-[#1B4332]">
+                Scale-1000 integer math
               </div>
             </div>
 
             {/* Feature 4 */}
-            <div className="bg-[#FAF6EE] p-8 rounded-2xl border border-[#E5DCC5] flex flex-col justify-between hover:shadow-md transition-shadow">
+            <div className="bg-[#FAF6EE] p-6 sm:p-8 rounded-2xl border border-[#E5DCC5] flex flex-col justify-between hover:shadow-md transition-shadow">
               <div>
                 <div className="w-12 h-12 rounded-xl bg-[#1B4332] text-[#FDFBF7] flex items-center justify-center font-black text-xl mb-5">
-                  💸
+                  <svg className="w-6 h-6 text-[#FDFBF7]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
                 </div>
-                <h3 className="text-xl font-black text-[#141816] mb-2">Expense & Overhead Tracking</h3>
-                <p className="text-[#363C39] text-sm leading-relaxed mb-4">
+                <h3 className="text-lg sm:text-xl font-black text-[#141816] mb-2">Expense &amp; Overhead Tracking</h3>
+                <p className="text-[#363C39] text-xs sm:text-sm leading-relaxed mb-4">
                   Record generator fuel, shop rent, transport fees, and supplier payments. See your true net profit rather than misleading gross sales figures.
                 </p>
               </div>
-              <div className="pt-4 border-t border-[#E5DCC5] text-xs font-bold text-[#1B4332] flex items-center gap-1">
-                <span>True profit calculation</span>
+              <div className="pt-4 border-t border-[#E5DCC5] text-xs font-bold text-[#1B4332]">
+                True profit calculation
               </div>
             </div>
 
             {/* Feature 5 */}
-            <div className="bg-[#FAF6EE] p-8 rounded-2xl border border-[#E5DCC5] flex flex-col justify-between hover:shadow-md transition-shadow">
+            <div className="bg-[#FAF6EE] p-6 sm:p-8 rounded-2xl border border-[#E5DCC5] flex flex-col justify-between hover:shadow-md transition-shadow">
               <div>
                 <div className="w-12 h-12 rounded-xl bg-[#1B4332] text-[#FDFBF7] flex items-center justify-center font-black text-xl mb-5">
-                  📑
+                  <svg className="w-6 h-6 text-[#FDFBF7]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                  </svg>
                 </div>
-                <h3 className="text-xl font-black text-[#141816] mb-2">Unified Business Book</h3>
-                <p className="text-[#363C39] text-sm leading-relaxed mb-4">
+                <h3 className="text-lg sm:text-xl font-black text-[#141816] mb-2">Unified Business Book</h3>
+                <p className="text-[#363C39] text-xs sm:text-sm leading-relaxed mb-4">
                   A transparent chronological ledger detailing every financial event. Review sales receipts, customer debt settlements, and expense receipts in one stream.
                 </p>
               </div>
-              <div className="pt-4 border-t border-[#E5DCC5] text-xs font-bold text-[#1B4332] flex items-center gap-1">
-                <span>Audited activity ledger</span>
+              <div className="pt-4 border-t border-[#E5DCC5] text-xs font-bold text-[#1B4332]">
+                Audited activity ledger
               </div>
             </div>
 
             {/* Feature 6 */}
-            <div className="bg-[#FAF6EE] p-8 rounded-2xl border border-[#E5DCC5] flex flex-col justify-between hover:shadow-md transition-shadow">
+            <div className="bg-[#FAF6EE] p-6 sm:p-8 rounded-2xl border border-[#E5DCC5] flex flex-col justify-between hover:shadow-md transition-shadow">
               <div>
                 <div className="w-12 h-12 rounded-xl bg-[#1B4332] text-[#FDFBF7] flex items-center justify-center font-black text-xl mb-5">
-                  ☁️
+                  <svg className="w-6 h-6 text-[#FDFBF7]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
                 </div>
-                <h3 className="text-xl font-black text-[#141816] mb-2">Safe Offline-to-Cloud Sync</h3>
-                <p className="text-[#363C39] text-sm leading-relaxed mb-4">
+                <h3 className="text-lg sm:text-xl font-black text-[#141816] mb-2">Safe Offline-to-Cloud Sync</h3>
+                <p className="text-[#363C39] text-xs sm:text-sm leading-relaxed mb-4">
                   Operate entirely offline with full confidence. As soon as your device connects to mobile data or Wi-Fi, pending records sync automatically in the background.
                 </p>
               </div>
-              <div className="pt-4 border-t border-[#E5DCC5] text-xs font-bold text-[#1B4332] flex items-center gap-1">
-                <span>Automatic background sync</span>
+              <div className="pt-4 border-t border-[#E5DCC5] text-xs font-bold text-[#1B4332]">
+                Automatic background sync
               </div>
             </div>
           </div>
@@ -446,24 +499,24 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
       {/* --------------------------------------------------------------------- */}
       {/* 4. "How to Use MSME Ledger" (Step-by-Step Interactive Guide) */}
       {/* --------------------------------------------------------------------- */}
-      <section id="how-to-use" className="py-20 bg-[#F7F4EB] border-b border-[#E5DCC5]">
+      <section id="how-to-use" className="py-16 sm:py-20 bg-[#F7F4EB] border-b border-[#E5DCC5]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-3xl mx-auto mb-16">
-            <span className="text-xs font-black uppercase tracking-wider text-[#1B4332] bg-[#D8ECE1] px-3 py-1 rounded-full border border-[#B2DAC5]">
+          <div className="text-center max-w-3xl mx-auto mb-12 sm:mb-16">
+            <span className="text-2xs sm:text-xs font-black uppercase tracking-wider text-[#1B4332] bg-[#D8ECE1] px-3 py-1 rounded-full border border-[#B2DAC5]">
               Step-by-Step Practical Guide
             </span>
-            <h2 className="text-3xl sm:text-4xl font-black text-[#141816] mt-4 mb-4 tracking-tight">
+            <h2 className="text-2xl sm:text-4xl font-black text-[#141816] mt-3 sm:mt-4 mb-3 sm:mb-4 tracking-tight">
               How to Use MSME Ledger in Your Daily Routine
             </h2>
-            <p className="text-base sm:text-lg text-[#5C6460] font-medium leading-relaxed">
+            <p className="text-sm sm:text-lg text-[#5C6460] font-medium leading-relaxed">
               Designed for effortless adoption. Follow these five clear steps from opening your store in the morning to balancing your books at night.
             </p>
           </div>
 
           {/* Interactive Step Navigator */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-8 items-start">
             {/* Step Tabs List */}
-            <div className="lg:col-span-5 space-y-3">
+            <div className="lg:col-span-5 space-y-2.5 sm:space-y-3">
               {GUIDE_STEPS.map((stepItem, index) => {
                 const isSelected = activeGuideStep === index;
                 return (
@@ -471,14 +524,14 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
                     key={stepItem.step}
                     type="button"
                     onClick={() => setActiveGuideStep(index)}
-                    className={`w-full text-left p-5 rounded-2xl border transition-all flex items-start gap-4 ${
+                    className={`w-full text-left p-4 sm:p-5 rounded-2xl border transition-all flex items-start gap-3 sm:gap-4 ${
                       isSelected
-                        ? 'bg-[#1B4332] text-[#FDFBF7] border-[#143621] shadow-md transform scale-[1.02]'
+                        ? 'bg-[#1B4332] text-[#FDFBF7] border-[#143621] shadow-md transform sm:scale-[1.02]'
                         : 'bg-[#FAF6EE] text-[#1E2321] border-[#E5DCC5] hover:border-[#D5C8AB] hover:bg-[#F3EDE0]'
                     }`}
                   >
                     <div
-                      className={`w-9 h-9 rounded-lg flex items-center justify-center font-black text-sm shrink-0 ${
+                      className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center font-black text-xs sm:text-sm shrink-0 ${
                         isSelected
                           ? 'bg-[#2D6A4F] text-[#FDFBF7] border border-[#3E8662]'
                           : 'bg-[#D8ECE1] text-[#1B4332]'
@@ -498,7 +551,7 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
                           {stepItem.badge}
                         </span>
                       </div>
-                      <h4 className="font-bold text-base leading-snug">{stepItem.title}</h4>
+                      <h4 className="font-bold text-sm sm:text-base leading-snug">{stepItem.title}</h4>
                       <p
                         className={`text-xs mt-1 font-medium truncate ${
                           isSelected ? 'text-[#D8ECE1]' : 'text-[#5C6460]'
@@ -513,48 +566,50 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
             </div>
 
             {/* Step Detail Display Card */}
-            <div className="lg:col-span-7 bg-[#FDFBF7] p-8 md:p-10 rounded-3xl border border-[#E5DCC5] shadow-sm">
-              <div className="flex items-center justify-between pb-6 border-b border-[#E5DCC5] mb-6">
+            <div className="lg:col-span-7 bg-[#FDFBF7] p-6 sm:p-8 md:p-10 rounded-3xl border border-[#E5DCC5] shadow-sm">
+              <div className="flex items-center justify-between pb-5 border-b border-[#E5DCC5] mb-5">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-[#D8ECE1] text-[#1B4332] flex items-center justify-center">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-[#D8ECE1] text-[#1B4332] flex items-center justify-center">
                     {GUIDE_STEPS[activeGuideStep].icon}
                   </div>
                   <div>
-                    <span className="text-xs font-black uppercase tracking-wider text-[#1B4332]">
+                    <span className="text-2xs sm:text-xs font-black uppercase tracking-wider text-[#1B4332]">
                       Step {GUIDE_STEPS[activeGuideStep].step} • {GUIDE_STEPS[activeGuideStep].badge}
                     </span>
-                    <h3 className="text-2xl font-black text-[#141816]">
+                    <h3 className="text-xl sm:text-2xl font-black text-[#141816]">
                       {GUIDE_STEPS[activeGuideStep].title}
                     </h3>
                   </div>
                 </div>
               </div>
 
-              <div className="space-y-6 text-[#363C39]">
+              <div className="space-y-5 sm:space-y-6 text-[#363C39]">
                 <div>
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-[#5C6460] mb-2">
+                  <h4 className="text-2xs font-bold uppercase tracking-wider text-[#5C6460] mb-2">
                     What happens in this step
                   </h4>
-                  <p className="text-base sm:text-lg leading-relaxed font-medium">
+                  <p className="text-sm sm:text-base leading-relaxed font-medium">
                     {GUIDE_STEPS[activeGuideStep].details}
                   </p>
                 </div>
 
-                <div className="p-5 rounded-2xl bg-[#FAF6EE] border border-[#E5DCC5]">
+                <div className="p-4 sm:p-5 rounded-2xl bg-[#FAF6EE] border border-[#E5DCC5]">
                   <div className="flex items-start gap-3">
-                    <span className="text-[#1B4332] font-black text-lg">💡</span>
+                    <svg className="w-5 h-5 text-[#1B4332] shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
                     <div>
-                      <h5 className="text-xs font-bold uppercase tracking-wider text-[#1B4332] mb-1">
+                      <h5 className="text-2xs font-bold uppercase tracking-wider text-[#1B4332] mb-1">
                         How to do it in the app
                       </h5>
-                      <p className="text-sm font-semibold text-[#1E2321]">
+                      <p className="text-xs sm:text-sm font-semibold text-[#1E2321]">
                         {GUIDE_STEPS[activeGuideStep].actionHint}
                       </p>
                     </div>
                   </div>
                 </div>
 
-                <div className="pt-4 flex items-center justify-between">
+                <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4">
                   <div className="flex items-center gap-2">
                     {GUIDE_STEPS.map((_, dotIdx) => (
                       <button
@@ -572,7 +627,7 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
                   <button
                     type="button"
                     onClick={handlePrimaryAction}
-                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[#1B4332] text-[#FDFBF7] font-bold text-sm hover:bg-[#22573F] transition-colors"
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#1B4332] text-[#FDFBF7] font-bold text-sm hover:bg-[#22573F] transition-colors"
                   >
                     <span>Try This in MSME Ledger</span>
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -587,36 +642,43 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
       </section>
 
       {/* --------------------------------------------------------------------- */}
-      {/* 5. The 9 Core Modules Explorer */}
+      {/* 5. The 9 Core Modules Explorer (No Emojis) */}
       {/* --------------------------------------------------------------------- */}
-      <section id="modules" className="py-20 bg-[#FDFBF7] border-b border-[#E5DCC5]">
+      <section id="modules" className="py-16 sm:py-20 bg-[#FDFBF7] border-b border-[#E5DCC5]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-3xl mx-auto mb-16">
-            <span className="text-xs font-black uppercase tracking-wider text-[#1B4332] bg-[#D8ECE1] px-3 py-1 rounded-full border border-[#B2DAC5]">
+          <div className="text-center max-w-3xl mx-auto mb-12 sm:mb-16">
+            <span className="text-2xs sm:text-xs font-black uppercase tracking-wider text-[#1B4332] bg-[#D8ECE1] px-3 py-1 rounded-full border border-[#B2DAC5]">
               9 Complete Modules
             </span>
-            <h2 className="text-3xl sm:text-4xl font-black text-[#141816] mt-4 mb-4 tracking-tight">
+            <h2 className="text-2xl sm:text-4xl font-black text-[#141816] mt-3 sm:mt-4 mb-3 sm:mb-4 tracking-tight">
               Built for Every Corner of Your Shop
             </h2>
-            <p className="text-base sm:text-lg text-[#5C6460] font-medium leading-relaxed">
+            <p className="text-sm sm:text-lg text-[#5C6460] font-medium leading-relaxed">
               Every tool your store needs to operate smoothly from morning opening to evening reconciliation.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
             {MODULES.map((mod, idx) => (
               <div
                 key={mod.name}
-                className="p-6 rounded-2xl bg-[#FAF6EE] border border-[#E5DCC5] hover:border-[#1B4332] transition-colors shadow-2xs flex flex-col justify-between"
+                className="p-5 sm:p-6 rounded-2xl bg-[#FAF6EE] border border-[#E5DCC5] hover:border-[#1B4332] transition-colors shadow-2xs flex flex-col justify-between"
               >
                 <div>
-                  <div className="text-3xl mb-4">{mod.icon}</div>
-                  <h3 className="text-lg font-black text-[#141816] mb-2">{mod.name}</h3>
-                  <p className="text-sm text-[#363C39] leading-relaxed">{mod.description}</p>
+                  <div className="w-10 h-10 rounded-xl bg-[#D8ECE1] flex items-center justify-center mb-4">
+                    {mod.icon}
+                  </div>
+                  <h3 className="text-base sm:text-lg font-black text-[#141816] mb-1.5">{mod.name}</h3>
+                  <p className="text-xs sm:text-sm text-[#363C39] leading-relaxed">{mod.description}</p>
                 </div>
                 <div className="mt-5 pt-3 border-t border-[#E5DCC5] flex items-center justify-between text-2xs font-bold text-[#5C6460]">
                   <span>Module 0{idx + 1}</span>
-                  <span className="text-[#1B4332]">Offline Enabled ✓</span>
+                  <span className="text-[#1B4332] flex items-center gap-1">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Offline Enabled</span>
+                  </span>
                 </div>
               </div>
             ))}
@@ -627,73 +689,89 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
       {/* --------------------------------------------------------------------- */}
       {/* 6. Why Offline-First Matters (Reliability Architecture) */}
       {/* --------------------------------------------------------------------- */}
-      <section id="offline" className="py-20 bg-[#F7F4EB] border-b border-[#E5DCC5]">
+      <section id="offline" className="py-16 sm:py-20 bg-[#F7F4EB] border-b border-[#E5DCC5]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-3xl mx-auto mb-16">
-            <span className="text-xs font-black uppercase tracking-wider text-[#1B4332] bg-[#D8ECE1] px-3 py-1 rounded-full border border-[#B2DAC5]">
+          <div className="text-center max-w-3xl mx-auto mb-12 sm:mb-16">
+            <span className="text-2xs sm:text-xs font-black uppercase tracking-wider text-[#1B4332] bg-[#D8ECE1] px-3 py-1 rounded-full border border-[#B2DAC5]">
               Offline-First Philosophy
             </span>
-            <h2 className="text-3xl sm:text-4xl font-black text-[#141816] mt-4 mb-4 tracking-tight">
+            <h2 className="text-2xl sm:text-4xl font-black text-[#141816] mt-3 sm:mt-4 mb-3 sm:mb-4 tracking-tight">
               Why Offline-First is Essential for Retail Success
             </h2>
-            <p className="text-base sm:text-lg text-[#5C6460] font-medium leading-relaxed">
+            <p className="text-sm sm:text-lg text-[#5C6460] font-medium leading-relaxed">
               When customers are waiting at your cashier desk, waiting 15 seconds for a web page to load is unacceptable.
               Here is how MSME Ledger protects your business:
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
             {/* The Old Way */}
-            <div className="p-8 rounded-3xl bg-[#FDFBF7] border border-[#E5DCC5] shadow-xs">
+            <div className="p-6 sm:p-8 rounded-3xl bg-[#FDFBF7] border border-[#E5DCC5] shadow-xs">
               <div className="flex items-center gap-2 mb-4">
-                <span className="text-xs font-black uppercase tracking-wider px-3 py-1 rounded-full bg-[#E5DCC5] text-[#5C6460]">
-                  Conventional Cloud POS & Paper
+                <span className="text-2xs font-black uppercase tracking-wider px-3 py-1 rounded-full bg-[#E5DCC5] text-[#5C6460]">
+                  Conventional Cloud POS &amp; Paper
                 </span>
               </div>
-              <h3 className="text-2xl font-black text-[#141816] mb-4">Slow, Fragile, & Risky</h3>
-              <ul className="space-y-4 text-sm text-[#363C39] font-medium">
+              <h3 className="text-xl sm:text-2xl font-black text-[#141816] mb-4">Slow, Fragile, &amp; Risky</h3>
+              <ul className="space-y-3.5 text-xs sm:text-sm text-[#363C39] font-medium">
                 <li className="flex items-start gap-3">
-                  <span className="text-charcoal-400 font-bold">✕</span>
+                  <svg className="w-4 h-4 text-[#7E8684] shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
                   <span>Freezes during network downtime or server maintenance.</span>
                 </li>
                 <li className="flex items-start gap-3">
-                  <span className="text-charcoal-400 font-bold">✕</span>
+                  <svg className="w-4 h-4 text-[#7E8684] shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
                   <span>Paper books get torn, stolen, soaked in rain, or misplaced.</span>
                 </li>
                 <li className="flex items-start gap-3">
-                  <span className="text-charcoal-400 font-bold">✕</span>
+                  <svg className="w-4 h-4 text-[#7E8684] shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
                   <span>Customers dispute debt amounts because there is no dated record.</span>
                 </li>
                 <li className="flex items-start gap-3">
-                  <span className="text-charcoal-400 font-bold">✕</span>
+                  <svg className="w-4 h-4 text-[#7E8684] shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
                   <span>Stock theft goes unnoticed until annual counts.</span>
                 </li>
               </ul>
             </div>
 
             {/* The MSME Ledger Way */}
-            <div className="p-8 rounded-3xl bg-[#1B4332] text-[#FDFBF7] border border-[#143621] shadow-lg">
+            <div className="p-6 sm:p-8 rounded-3xl bg-[#1B4332] text-[#FDFBF7] border border-[#143621] shadow-lg">
               <div className="flex items-center gap-2 mb-4">
-                <span className="text-xs font-black uppercase tracking-wider px-3 py-1 rounded-full bg-[#2D6A4F] text-[#D8ECE1] border border-[#3E8662]">
+                <span className="text-2xs font-black uppercase tracking-wider px-3 py-1 rounded-full bg-[#2D6A4F] text-[#D8ECE1] border border-[#3E8662]">
                   The MSME Ledger Standard
                 </span>
               </div>
-              <h3 className="text-2xl font-black text-[#FDFBF7] mb-4">Resilient, Instant, & Sovereign</h3>
-              <ul className="space-y-4 text-sm text-[#D8ECE1] font-medium">
+              <h3 className="text-xl sm:text-2xl font-black text-[#FDFBF7] mb-4">Resilient, Instant, &amp; Sovereign</h3>
+              <ul className="space-y-3.5 text-xs sm:text-sm text-[#D8ECE1] font-medium">
                 <li className="flex items-start gap-3">
-                  <span className="text-[#FDFBF7] font-bold">✓</span>
+                  <svg className="w-4 h-4 text-[#D8ECE1] shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                  </svg>
                   <span>Zero latency: cart updates and sales ring up in under 50 milliseconds.</span>
                 </li>
                 <li className="flex items-start gap-3">
-                  <span className="text-[#FDFBF7] font-bold">✓</span>
-                  <span>100% offline data durability using client-side IndexedDB & sagas.</span>
+                  <svg className="w-4 h-4 text-[#D8ECE1] shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span>100% offline data durability using client-side IndexedDB &amp; sagas.</span>
                 </li>
                 <li className="flex items-start gap-3">
-                  <span className="text-[#FDFBF7] font-bold">✓</span>
+                  <svg className="w-4 h-4 text-[#D8ECE1] shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                  </svg>
                   <span>1-click WhatsApp reminders provide dated proof that eliminates debtor disputes.</span>
                 </li>
                 <li className="flex items-start gap-3">
-                  <span className="text-[#FDFBF7] font-bold">✓</span>
+                  <svg className="w-4 h-4 text-[#D8ECE1] shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                  </svg>
                   <span>Scale-1000 precision tracks physical inventory down to fractions of a unit.</span>
                 </li>
               </ul>
@@ -705,95 +783,160 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
       {/* --------------------------------------------------------------------- */}
       {/* 7. Simple, Transparent Pricing (Bank Transfer) */}
       {/* --------------------------------------------------------------------- */}
-      <section id="pricing" className="py-20 bg-[#FDFBF7] border-b border-[#E5DCC5]">
+      <section id="pricing" className="py-16 sm:py-20 bg-[#FDFBF7] border-b border-[#E5DCC5]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-3xl mx-auto mb-16">
-            <span className="text-xs font-black uppercase tracking-wider text-[#1B4332] bg-[#D8ECE1] px-3 py-1 rounded-full border border-[#B2DAC5]">
+          <div className="text-center max-w-3xl mx-auto mb-12 sm:mb-16">
+            <span className="text-2xs sm:text-xs font-black uppercase tracking-wider text-[#1B4332] bg-[#D8ECE1] px-3 py-1 rounded-full border border-[#B2DAC5]">
               Straightforward Pricing
             </span>
-            <h2 className="text-3xl sm:text-4xl font-black text-[#141816] mt-4 mb-4 tracking-tight">
+            <h2 className="text-2xl sm:text-4xl font-black text-[#141816] mt-3 sm:mt-4 mb-3 sm:mb-4 tracking-tight">
               No Cards. No Hidden Debits. Simple Bank Transfer.
             </h2>
-            <p className="text-base sm:text-lg text-[#5C6460] font-medium leading-relaxed">
+            <p className="text-sm sm:text-lg text-[#5C6460] font-medium leading-relaxed">
               We never ask for your debit card. Upgrade anytime via a direct bank transfer with your unique reference code.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto items-stretch">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8 max-w-5xl mx-auto items-stretch">
             {/* Free Trial */}
-            <div className="p-8 rounded-3xl bg-[#FAF6EE] border border-[#E5DCC5] flex flex-col justify-between shadow-2xs">
+            <div className="p-6 sm:p-8 rounded-3xl bg-[#FAF6EE] border border-[#E5DCC5] flex flex-col justify-between shadow-2xs">
               <div>
-                <div className="text-xs font-black uppercase tracking-wider text-[#5C6460] mb-2">Evaluation</div>
-                <h3 className="text-2xl font-black text-[#141816] mb-1">Free 30-Day Trial</h3>
-                <p className="text-xs text-[#5C6460] mb-6">Experience full offline retail control with zero risk.</p>
-                <div className="text-4xl font-black text-[#141816] mb-6">
+                <div className="text-2xs font-black uppercase tracking-wider text-[#5C6460] mb-2">Evaluation</div>
+                <h3 className="text-xl sm:text-2xl font-black text-[#141816] mb-1">Free 30-Day Trial</h3>
+                <p className="text-xs text-[#5C6460] mb-6 font-medium">Experience full offline retail control with zero risk.</p>
+                <div className="text-3xl sm:text-4xl font-black text-[#141816] mb-6">
                   ₦0 <span className="text-sm font-semibold text-[#5C6460]">/ 30 days</span>
                 </div>
-                <ul className="space-y-3 text-sm text-[#363C39] mb-8 font-medium">
-                  <li className="flex items-center gap-2">✓ All 9 core modules unlocked</li>
-                  <li className="flex items-center gap-2">✓ Unlimited local POS checkouts</li>
-                  <li className="flex items-center gap-2">✓ Full customer credit book</li>
-                  <li className="flex items-center gap-2">✓ WhatsApp payment reminders</li>
+                <ul className="space-y-3 text-xs sm:text-sm text-[#363C39] mb-8 font-medium">
+                  <li className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-[#1B4332] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>All 9 core modules unlocked</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-[#1B4332] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Unlimited local POS checkouts</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-[#1B4332] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Full customer credit book</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-[#1B4332] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>WhatsApp payment reminders</span>
+                  </li>
                 </ul>
               </div>
               <button
                 type="button"
                 onClick={handlePrimaryAction}
-                className="w-full py-3.5 px-4 rounded-xl bg-[#F7F4EB] text-[#1E2321] font-bold border border-[#E5DCC5] hover:bg-[#EFE9DA] transition-colors"
+                className="w-full py-3 sm:py-3.5 px-4 rounded-xl bg-[#F7F4EB] text-[#1E2321] font-bold border border-[#E5DCC5] hover:bg-[#EFE9DA] transition-colors text-sm"
               >
                 Start Free Trial
               </button>
             </div>
 
             {/* Pro Plan */}
-            <div className="p-8 rounded-3xl bg-[#1B4332] text-[#FDFBF7] border border-[#143621] flex flex-col justify-between shadow-xl relative transform md:-translate-y-2">
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-[#D8ECE1] text-[#1B4332] text-xs font-black uppercase tracking-wider border border-[#B2DAC5]">
+            <div className="p-6 sm:p-8 rounded-3xl bg-[#1B4332] text-[#FDFBF7] border border-[#143621] flex flex-col justify-between shadow-xl relative transform md:-translate-y-2">
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-[#D8ECE1] text-[#1B4332] text-2xs font-black uppercase tracking-wider border border-[#B2DAC5]">
                 Most Popular
               </div>
               <div>
-                <div className="text-xs font-black uppercase tracking-wider text-[#D8ECE1] mb-2">Merchant Pro</div>
-                <h3 className="text-2xl font-black text-[#FDFBF7] mb-1">Pro Store</h3>
-                <p className="text-xs text-[#D8ECE1] mb-6">For established retail shops and agro-dealers.</p>
-                <div className="text-4xl font-black text-[#FDFBF7] mb-6">
+                <div className="text-2xs font-black uppercase tracking-wider text-[#D8ECE1] mb-2">Merchant Pro</div>
+                <h3 className="text-xl sm:text-2xl font-black text-[#FDFBF7] mb-1">Pro Store</h3>
+                <p className="text-xs text-[#D8ECE1] mb-6 font-medium">For established retail shops and agro-dealers.</p>
+                <div className="text-3xl sm:text-4xl font-black text-[#FDFBF7] mb-6">
                   ₦5,000 <span className="text-sm font-semibold text-[#D8ECE1]">/ month</span>
                 </div>
-                <ul className="space-y-3 text-sm text-[#D8ECE1] mb-8 font-medium">
-                  <li className="flex items-center gap-2">✓ Unlimited catalog & sales volume</li>
-                  <li className="flex items-center gap-2">✓ Multi-device cloud synchronization</li>
-                  <li className="flex items-center gap-2">✓ WhatsApp debt recovery reminders</li>
-                  <li className="flex items-center gap-2">✓ Cryptographic offline entitlement tokens</li>
-                  <li className="flex items-center gap-2">✓ 7-day automatic renewal grace period</li>
+                <ul className="space-y-3 text-xs sm:text-sm text-[#D8ECE1] mb-8 font-medium">
+                  <li className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-[#D8ECE1] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Unlimited catalog &amp; sales volume</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-[#D8ECE1] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Multi-device cloud synchronization</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-[#D8ECE1] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>WhatsApp debt recovery reminders</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-[#D8ECE1] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Cryptographic offline entitlement tokens</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-[#D8ECE1] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>7-day automatic renewal grace period</span>
+                  </li>
                 </ul>
               </div>
               <button
                 type="button"
                 onClick={handlePrimaryAction}
-                className="w-full py-4 px-4 rounded-xl bg-[#D8ECE1] text-[#1B4332] font-black text-base shadow-md hover:bg-[#B2DAC5] active:bg-[#8BC8A9] transition-colors"
+                className="w-full py-3.5 sm:py-4 px-4 rounded-xl bg-[#D8ECE1] text-[#1B4332] font-black text-sm sm:text-base shadow-md hover:bg-[#B2DAC5] active:bg-[#8BC8A9] transition-colors"
               >
                 Get Started
               </button>
             </div>
 
             {/* Enterprise Plan */}
-            <div className="p-8 rounded-3xl bg-[#FAF6EE] border border-[#E5DCC5] flex flex-col justify-between shadow-2xs">
+            <div className="p-6 sm:p-8 rounded-3xl bg-[#FAF6EE] border border-[#E5DCC5] flex flex-col justify-between shadow-2xs">
               <div>
-                <div className="text-xs font-black uppercase tracking-wider text-[#5C6460] mb-2">Multi-Shop</div>
-                <h3 className="text-2xl font-black text-[#141816] mb-1">Enterprise</h3>
-                <p className="text-xs text-[#5C6460] mb-6">For businesses managing multiple branches or depots.</p>
-                <div className="text-4xl font-black text-[#141816] mb-6">
+                <div className="text-2xs font-black uppercase tracking-wider text-[#5C6460] mb-2">Multi-Shop</div>
+                <h3 className="text-xl sm:text-2xl font-black text-[#141816] mb-1">Enterprise</h3>
+                <p className="text-xs text-[#5C6460] mb-6 font-medium">For businesses managing multiple branches or depots.</p>
+                <div className="text-3xl sm:text-4xl font-black text-[#141816] mb-6">
                   ₦15,000 <span className="text-sm font-semibold text-[#5C6460]">/ month</span>
                 </div>
-                <ul className="space-y-3 text-sm text-[#363C39] mb-8 font-medium">
-                  <li className="flex items-center gap-2">✓ Everything in Pro</li>
-                  <li className="flex items-center gap-2">✓ Multiple shop locations & cashiers</li>
-                  <li className="flex items-center gap-2">✓ Role-based permissions (Cashier vs Owner)</li>
-                  <li className="flex items-center gap-2">✓ Immutable audit logging & reconciliation</li>
+                <ul className="space-y-3 text-xs sm:text-sm text-[#363C39] mb-8 font-medium">
+                  <li className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-[#1B4332] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Everything in Pro</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-[#1B4332] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Multiple shop locations &amp; cashiers</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-[#1B4332] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Role-based permissions (Cashier vs Owner)</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-[#1B4332] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Immutable audit logging &amp; reconciliation</span>
+                  </li>
                 </ul>
               </div>
               <button
                 type="button"
                 onClick={handlePrimaryAction}
-                className="w-full py-3.5 px-4 rounded-xl bg-[#F7F4EB] text-[#1E2321] font-bold border border-[#E5DCC5] hover:bg-[#EFE9DA] transition-colors"
+                className="w-full py-3 sm:py-3.5 px-4 rounded-xl bg-[#F7F4EB] text-[#1E2321] font-bold border border-[#E5DCC5] hover:bg-[#EFE9DA] transition-colors text-sm"
               >
                 Choose Enterprise
               </button>
@@ -805,21 +948,21 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
       {/* --------------------------------------------------------------------- */}
       {/* 8. Frequently Asked Questions */}
       {/* --------------------------------------------------------------------- */}
-      <section id="faq" className="py-20 bg-[#F7F4EB] border-b border-[#E5DCC5]">
+      <section id="faq" className="py-16 sm:py-20 bg-[#F7F4EB] border-b border-[#E5DCC5]">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <span className="text-xs font-black uppercase tracking-wider text-[#1B4332] bg-[#D8ECE1] px-3 py-1 rounded-full border border-[#B2DAC5]">
+          <div className="text-center mb-12 sm:mb-16">
+            <span className="text-2xs sm:text-xs font-black uppercase tracking-wider text-[#1B4332] bg-[#D8ECE1] px-3 py-1 rounded-full border border-[#B2DAC5]">
               Got Questions?
             </span>
-            <h2 className="text-3xl sm:text-4xl font-black text-[#141816] mt-4 mb-4 tracking-tight">
+            <h2 className="text-2xl sm:text-4xl font-black text-[#141816] mt-3 sm:mt-4 mb-3 sm:mb-4 tracking-tight">
               Frequently Asked Questions
             </h2>
-            <p className="text-base text-[#5C6460] font-medium">
+            <p className="text-sm sm:text-base text-[#5C6460] font-medium">
               Everything you need to know about setting up and running MSME Ledger.
             </p>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-3.5 sm:space-y-4">
             {FAQS.map((faq, idx) => {
               const isOpen = openFaqIndex === idx;
               return (
@@ -830,19 +973,21 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
                   <button
                     type="button"
                     onClick={() => setOpenFaqIndex(isOpen ? null : idx)}
-                    className="w-full p-6 text-left flex items-center justify-between gap-4 font-bold text-[#141816] hover:text-[#1B4332] transition-colors"
+                    className="w-full p-4 sm:p-6 text-left flex items-center justify-between gap-4 font-bold text-[#141816] hover:text-[#1B4332] transition-colors"
                   >
-                    <span className="text-base sm:text-lg">{faq.q}</span>
+                    <span className="text-sm sm:text-lg">{faq.q}</span>
                     <span
-                      className={`w-7 h-7 rounded-full flex items-center justify-center bg-[#FAF6EE] border border-[#E5DCC5] text-xs transition-transform ${
+                      className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-[#FAF6EE] border border-[#E5DCC5] text-xs transition-transform ${
                         isOpen ? 'rotate-180 text-[#1B4332]' : 'text-[#5C6460]'
                       }`}
                     >
-                      ▼
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" />
+                      </svg>
                     </span>
                   </button>
                   {isOpen && (
-                    <div className="px-6 pb-6 pt-2 text-sm sm:text-base text-[#363C39] font-medium leading-relaxed border-t border-[#E5DCC5]">
+                    <div className="px-4 pb-4 sm:px-6 sm:pb-6 pt-2 text-xs sm:text-base text-[#363C39] font-medium leading-relaxed border-t border-[#E5DCC5]">
                       {faq.a}
                     </div>
                   )}
@@ -856,21 +1001,21 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
       {/* --------------------------------------------------------------------- */}
       {/* 9. Bottom Call to Action */}
       {/* --------------------------------------------------------------------- */}
-      <section className="py-20 bg-[#1B4332] text-[#FDFBF7] border-b border-[#143621]">
+      <section className="py-16 sm:py-20 bg-[#1B4332] text-[#FDFBF7] border-b border-[#143621]">
         <div className="max-w-4xl mx-auto px-4 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-[#2D6A4F] text-[#FDFBF7] flex items-center justify-center font-black text-3xl mx-auto mb-6 shadow-md border border-[#3E8662]">
+          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-[#2D6A4F] text-[#FDFBF7] flex items-center justify-center font-black text-2xl sm:text-3xl mx-auto mb-6 shadow-md border border-[#3E8662]">
             ₦
           </div>
-          <h2 className="text-3xl sm:text-5xl font-black text-[#FDFBF7] tracking-tight mb-6">
+          <h2 className="text-2xl sm:text-4xl md:text-5xl font-black text-[#FDFBF7] tracking-tight mb-4 sm:mb-6">
             Ready to Take Control of Your Store?
           </h2>
-          <p className="text-lg text-[#D8ECE1] font-medium max-w-2xl mx-auto mb-10 leading-relaxed">
+          <p className="text-sm sm:text-lg text-[#D8ECE1] font-medium max-w-2xl mx-auto mb-8 sm:mb-10 leading-relaxed">
             Join hundreds of retail merchants and small businesses recording sales offline and recovering debts with ease.
           </p>
           <button
             type="button"
             onClick={handlePrimaryAction}
-            className="px-10 py-5 rounded-2xl bg-[#FDFBF7] text-[#1B4332] text-xl font-black shadow-2xl hover:bg-[#FAF6EE] active:bg-[#F3EDE0] transition-all transform active:scale-95"
+            className="w-full sm:w-auto px-8 sm:px-10 py-4 sm:py-5 rounded-2xl bg-[#FDFBF7] text-[#1B4332] text-base sm:text-xl font-black shadow-2xl hover:bg-[#FAF6EE] active:bg-[#F3EDE0] transition-all transform active:scale-95"
           >
             {existingShopName ? `Open ${existingShopName}` : 'Launch MSME Ledger Now (Free)'}
           </button>
@@ -880,20 +1025,18 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
       {/* --------------------------------------------------------------------- */}
       {/* 10. Footer */}
       {/* --------------------------------------------------------------------- */}
-      <footer className="bg-[#141816] text-[#FAF6EE] py-12 border-t border-[#2E3431]">
+      <footer className="bg-[#141816] text-[#FAF6EE] py-10 sm:py-12 border-t border-[#2E3431]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col md:flex-row items-center justify-between gap-6 pb-8 border-b border-[#2E3431]">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-[#1B4332] text-[#FDFBF7] flex items-center justify-center font-black text-sm">
-                ₦
-              </div>
+              <BrandLogo size={32} />
               <div>
-                <span className="font-bold text-base text-[#FDFBF7]">MSME Ledger</span>
+                <span className="font-bold text-sm sm:text-base text-[#FDFBF7]">MSME Ledger</span>
                 <p className="text-2xs text-[#7E8684]">Offline-First Small Business Operating System</p>
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-center gap-6 text-xs font-bold text-[#A9AFAA]">
+            <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 text-xs font-bold text-[#A9AFAA]">
               <a href="#about" className="hover:text-[#FDFBF7] transition-colors">About</a>
               <a href="#how-to-use" className="hover:text-[#FDFBF7] transition-colors">How to Use</a>
               <a href="#modules" className="hover:text-[#FDFBF7] transition-colors">Modules</a>
@@ -903,16 +1046,22 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
             </div>
 
             <div className="text-2xs text-[#7E8684]">
-              v2.1 • Built with Forest Green, Sand & Charcoal
+              v2.1 • Forest Green, Sand &amp; Charcoal
             </div>
           </div>
 
-          <div className="pt-8 flex flex-col sm:flex-row items-center justify-between text-2xs text-[#7E8684] gap-4">
-            <p>© {new Date().getFullYear()} MSME Ledger. All rights reserved.</p>
+          <div className="pt-6 sm:pt-8 flex flex-col sm:flex-row items-center justify-between text-2xs text-[#7E8684] gap-3 text-center sm:text-left">
+            <p>&copy; {new Date().getFullYear()} MSME Ledger. All rights reserved.</p>
             <p>Designed for resilient retail operations in emerging markets.</p>
           </div>
         </div>
       </footer>
+
+      {/* Auth Modal Triggerable from Landing Page Navbar */}
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+      />
     </div>
   );
 }

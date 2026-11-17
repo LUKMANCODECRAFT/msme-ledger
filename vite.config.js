@@ -7,13 +7,13 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
+      includeAssets: ['favicon.svg', 'pwa-192x192.png', 'pwa-512x512.png'],
       manifest: {
-        name: 'Anti-Paper MSME Ledger',
+        name: 'MSME Ledger — Retail Operating System',
         short_name: 'MSME Ledger',
-        description: 'Offline-first sales and debt management for retail businesses.',
-        theme_color: '#059669',
-        background_color: '#f8fafc',
+        description: 'Offline-first retail sales, inventory, and debt ledger for emerging market merchants.',
+        theme_color: '#1B4332',
+        background_color: '#FDFBF7',
         display: 'standalone',
         orientation: 'portrait',
         icons: [

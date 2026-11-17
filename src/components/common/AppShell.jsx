@@ -3,6 +3,9 @@ import { usePendingSyncCount } from '../../config/db.js';
 import { pushPendingData } from '../../services/syncService.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useSubscription } from '../../context/SubscriptionContext.jsx';
+import BrandLogo from './BrandLogo.jsx';
+import AuthModal from './AuthModal.jsx';
+import StorageDiagnosticsModal from './StorageDiagnosticsModal.jsx';
 
 export const MODULE_ITEMS = [
   {
@@ -98,31 +101,24 @@ export const MODULE_ITEMS = [
   }
 ];
 
-export default function AppShell({ activeTab, onSelectTab, headerActions, children }) {
+export default function AppShell({
+  activeTab,
+  onSelectTab,
+  children,
+  headerActions
+}) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [storageModalOpen, setStorageModalOpen] = useState(false);
+
   const pendingCount = usePendingSyncCount();
-  const shopName = localStorage.getItem('shopName') || 'MSME Ledger Store';
-  const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
-  const { user, currentRole } = useAuth();
-  const { entitlementStatus, isReadOnly, statusMessage } = useSubscription();
+  const shopName = localStorage.getItem('shopName') || 'My Store';
+  const isOnline = navigator.onLine;
 
-  const currentModule = MODULE_ITEMS.find(m => m.id === activeTab) || MODULE_ITEMS[0];
+  const { user, isAuthenticated, currentRole } = useAuth();
+  const { isReadOnly, entitlementStatus, statusMessage } = useSubscription();
 
-  const handleSyncClick = () => {
-    if (pendingCount > 0) {
-      pushPendingData()
-        .then((res) => {
-          if (res?.status === 'no_pending') {
-            alert('All records are already stored locally and clean.');
-          } else if (res?.status === 'partial') {
-            alert(res.message);
-          } else {
-            alert(res?.message || 'Synchronization completed.');
-          }
-        })
-        .catch(err => alert(err.message));
-    }
-  };
+  const currentModule = MODULE_ITEMS.find((m) => m.id === activeTab) || MODULE_ITEMS[0];
 
   return (
     <div className="min-h-screen bg-[#FDFBF7] flex flex-col md:flex-row font-sans text-[#1E2321] antialiased selection:bg-[#D8ECE1] selection:text-[#1B4332]">
@@ -133,38 +129,36 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
         {/* Brand & Business Identity Header */}
         <div className="p-5 border-b border-[#2E3431]">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#1B4332] text-[#FDFBF7] flex items-center justify-center font-black text-lg shadow-sm border border-[#143621]">
-              ₦
-            </div>
+            <BrandLogo size={42} />
             <div className="min-w-0 flex-1">
-              <h1 className="text-base font-bold text-[#FDFBF7] tracking-tight truncate">
+              <h1 className="text-base font-black text-[#FDFBF7] tracking-tight truncate">
                 MSME Ledger
               </h1>
-              <p className="text-xs text-slate-400 truncate flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+              <p className="text-xs text-[#A9AFAA] truncate flex items-center gap-1.5 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#2D6A4F]"></span>
                 <span className="truncate">{user?.fullName ? `${user.fullName}'s Shop` : shopName}</span>
               </p>
               <div className="flex items-center gap-1.5 mt-1.5">
-                <span className="text-2xs font-bold uppercase px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                <span className="text-2xs font-bold uppercase px-1.5 py-0.5 rounded bg-[#2E3431] text-[#FAF6EE] border border-[#434A46]">
                   {currentRole}
                 </span>
                 {entitlementStatus === 'active' && (
-                  <span className="text-2xs font-extrabold uppercase px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700">
+                  <span className="text-2xs font-extrabold uppercase px-1.5 py-0.5 rounded bg-[#143621] text-[#D8ECE1] border border-[#2D6A4F]">
                     PRO
                   </span>
                 )}
                 {entitlementStatus === 'in_grace_period' && (
-                  <span className="text-2xs font-extrabold uppercase px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-700">
+                  <span className="text-2xs font-extrabold uppercase px-1.5 py-0.5 rounded bg-[#2E3431] text-[#E5DCC5] border border-[#7A6E53]">
                     GRACE
                   </span>
                 )}
                 {entitlementStatus === 'expired' && (
-                  <span className="text-2xs font-extrabold uppercase px-1.5 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-700">
+                  <span className="text-2xs font-extrabold uppercase px-1.5 py-0.5 rounded bg-[#2E3431] text-[#D5C8AB] border border-[#574E3A]">
                     EXPIRED
                   </span>
                 )}
                 {entitlementStatus === 'clock_tampered_locked' && (
-                  <span className="text-2xs font-extrabold uppercase px-1.5 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-800">
+                  <span className="text-2xs font-extrabold uppercase px-1.5 py-0.5 rounded bg-[#2E3431] text-[#BAAB8B] border border-[#7A6E53]">
                     CLOCK LOCKED
                   </span>
                 )}
@@ -182,17 +176,18 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
                 key={item.id}
                 type="button"
                 onClick={() => onSelectTab(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all text-left ${isActive
-                    ? 'bg-emerald-600 text-white shadow-xs font-bold'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
-                  }`}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all text-left ${
+                  isActive
+                    ? 'bg-[#1B4332] text-[#FDFBF7] shadow-xs font-bold border border-[#143621]'
+                    : 'text-[#A9AFAA] hover:text-[#FAF6EE] hover:bg-[#2E3431]'
+                }`}
               >
-                <span className={`${isActive ? 'text-white' : 'text-slate-400'}`}>
+                <span className={`${isActive ? 'text-[#FDFBF7]' : 'text-[#7E8684]'}`}>
                   {item.icon}
                 </span>
                 <span className="flex-1 truncate">{item.label}</span>
                 {item.id === 'pos' && (
-                  <span className="text-2xs font-extrabold uppercase px-1.5 py-0.5 rounded bg-emerald-700/80 text-emerald-100">
+                  <span className="text-2xs font-extrabold uppercase px-1.5 py-0.5 rounded bg-[#143621] text-[#D8ECE1] border border-[#2D6A4F]">
                     POS
                   </span>
                 )}
@@ -201,46 +196,62 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
           })}
         </nav>
 
-        {/* Sidebar Footer: Connectivity & Account Info */}
-        <div className="p-4 border-t border-slate-800 text-xs text-slate-400 space-y-2.5">
+        {/* Sidebar Footer: Account, Guide & Connectivity */}
+        <div className="p-4 border-t border-[#2E3431] text-xs text-[#A9AFAA] space-y-2">
+          {/* Account / Sign In Trigger */}
+          <button
+            type="button"
+            onClick={() => setAuthModalOpen(true)}
+            className="w-full flex items-center justify-between py-2 px-3 rounded-lg text-xs font-bold text-[#FAF6EE] bg-[#2E3431] hover:bg-[#434A46] transition-colors border border-[#434A46]"
+          >
+            <span className="flex items-center gap-2">
+              <svg className="w-3.5 h-3.5 text-[#D8ECE1]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              <span className="truncate">{isAuthenticated ? user?.fullName || 'My Account' : 'Sign In / Account'}</span>
+            </span>
+            <span className="text-2xs text-[#D8ECE1]">{isAuthenticated ? 'Online' : 'Login'}</span>
+          </button>
+
+          {/* User Guide Button */}
           <button
             type="button"
             onClick={() => onSelectTab('landing')}
             className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold text-[#D8ECE1] bg-[#1B4332] hover:bg-[#22573F] transition-colors border border-[#2D6A4F] shadow-xs"
           >
-            📖 About & User Guide
+            <svg className="w-3.5 h-3.5 text-[#D8ECE1]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+            </svg>
+            <span>User Guide &amp; About</span>
           </button>
-          <div className="flex items-center justify-between">
+
+          {/* Storage & Connectivity Status */}
+          <div className="flex items-center justify-between pt-1">
             <span className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-              <span className="font-medium text-slate-300">{isOnline ? 'Online (PWA)' : 'Offline Mode'}</span>
+              <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-[#2D6A4F]' : 'bg-[#7A6E53]'}`} />
+              <span className="font-medium text-[#FAF6EE]">{isOnline ? 'Online (PWA)' : 'Offline Mode'}</span>
             </span>
-            {pendingCount > 0 && (
-              <button
-                type="button"
-                onClick={handleSyncClick}
-                className="text-2xs font-bold text-amber-400 bg-amber-950/60 border border-amber-800/80 px-2 py-0.5 rounded hover:bg-amber-900 transition-colors"
-                title="Click to force manual sync"
-              >
-                Sync ({pendingCount})
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setStorageModalOpen(true)}
+              className="text-2xs font-bold text-[#D8ECE1] hover:underline"
+              title="View storage status and diagnostics"
+            >
+              Storage ({pendingCount})
+            </button>
           </div>
-          <p className="text-2xs text-slate-400">
-            SB Manager v2.1 • Offline First
-          </p>
         </div>
       </aside>
 
       {/* --------------------------------------------------------------------- */}
       {/* 2. Mobile Sticky Header & Mobile Drawer */}
       {/* --------------------------------------------------------------------- */}
-      <div className="md:hidden sticky top-0 z-40 bg-slate-900 text-white border-b border-slate-800 flex items-center justify-between px-4 py-3 shadow-md">
-        <div className="flex items-center gap-2.5">
+      <div className="md:hidden sticky top-0 z-40 bg-[#141816] text-[#FAF6EE] border-b border-[#2E3431] flex items-center justify-between px-3.5 py-2.5 shadow-md">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 focus:outline-none"
+            className="p-1.5 rounded-lg text-[#A9AFAA] hover:text-[#FAF6EE] hover:bg-[#2E3431] focus:outline-none"
             aria-label="Toggle Navigation Menu"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -251,29 +262,36 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
               )}
             </svg>
           </button>
-          <div className="flex items-center gap-2">
-            <span className="w-7 h-7 rounded-lg bg-emerald-600 flex items-center justify-center font-black text-xs text-white">
-              ₦
+          <div className="flex items-center gap-2 min-w-0">
+            <BrandLogo size={28} />
+            <span className="font-bold text-sm text-[#FDFBF7] truncate max-w-[120px]">
+              {shopName}
             </span>
-            <span className="font-bold text-sm tracking-tight">{shopName}</span>
           </div>
         </div>
 
-        {/* Mobile Quick Action / Sync Status */}
         <div className="flex items-center gap-2">
-          {pendingCount > 0 ? (
-            <button
-              type="button"
-              onClick={handleSyncClick}
-              className="text-2xs font-bold px-2 py-1 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30"
-            >
-              Pending ({pendingCount})
-            </button>
-          ) : (
-            <span className="text-2xs font-semibold px-2 py-0.5 rounded text-slate-300 bg-slate-800 border border-slate-700">
-              Local Clean
-            </span>
-          )}
+          {/* Mobile Auth Button */}
+          <button
+            type="button"
+            onClick={() => setAuthModalOpen(true)}
+            className="p-1.5 rounded-lg bg-[#2E3431] text-[#D8ECE1] text-xs font-bold border border-[#434A46]"
+            aria-label="Account details"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+          </button>
+
+          {/* Mobile Storage Diagnostics Button */}
+          <button
+            type="button"
+            onClick={() => setStorageModalOpen(true)}
+            className="text-2xs font-bold text-[#1B4332] bg-[#D8ECE1] border border-[#B2DAC5] px-2.5 py-1 rounded-full flex items-center gap-1"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-[#1B4332]" />
+            <span>{pendingCount > 0 ? `Sync (${pendingCount})` : 'Storage'}</span>
+          </button>
         </div>
       </div>
 
@@ -281,25 +299,22 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
       {mobileMenuOpen && (
         <div className="md:hidden fixed inset-0 z-50 flex">
           <div
-            className="fixed inset-0 bg-slate-950/70 backdrop-blur-2xs"
+            className="fixed inset-0 bg-[#141816]/75 backdrop-blur-xs transition-opacity"
             onClick={() => setMobileMenuOpen(false)}
-            aria-hidden="true"
           />
-          <div className="relative w-72 max-w-xs bg-slate-900 text-slate-300 h-full flex flex-col p-4 shadow-2xl z-50">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white font-black text-sm">
-                  ₦
-                </div>
+          <div className="relative w-72 max-w-xs bg-[#141816] text-[#FAF6EE] h-full flex flex-col p-4 shadow-2xl z-50 border-r border-[#2E3431]">
+            <div className="flex items-center justify-between pb-4 border-b border-[#2E3431] mb-3">
+              <div className="flex items-center gap-2.5">
+                <BrandLogo size={32} />
                 <div>
-                  <h2 className="text-sm font-bold text-white">MSME Ledger</h2>
-                  <p className="text-2xs text-slate-400">{shopName}</p>
+                  <h2 className="text-sm font-black text-[#FDFBF7]">MSME Ledger</h2>
+                  <p className="text-2xs text-[#A9AFAA] font-medium">{shopName}</p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(false)}
-                className="text-slate-400 hover:text-white p-1 rounded-md"
+                className="text-[#A9AFAA] hover:text-[#FAF6EE] p-1 rounded-md"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
@@ -318,12 +333,13 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
                       onSelectTab(item.id);
                       setMobileMenuOpen(false);
                     }}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-left transition-colors ${isActive
-                        ? 'bg-emerald-600 text-white font-bold'
-                        : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                      }`}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-left transition-colors ${
+                      isActive
+                        ? 'bg-[#1B4332] text-[#FDFBF7] font-bold border border-[#143621]'
+                        : 'text-[#A9AFAA] hover:text-[#FAF6EE] hover:bg-[#2E3431]'
+                    }`}
                   >
-                    <span className={isActive ? 'text-white' : 'text-slate-400'}>
+                    <span className={isActive ? 'text-[#FDFBF7]' : 'text-[#7E8684]'}>
                       {item.icon}
                     </span>
                     <span className="flex-1 truncate">{item.label}</span>
@@ -332,7 +348,17 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
               })}
             </nav>
 
-            <div className="pt-3 border-t border-slate-800 space-y-2 text-2xs text-slate-400">
+            <div className="pt-3 border-t border-[#2E3431] space-y-2 text-2xs text-[#A9AFAA]">
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthModalOpen(true);
+                  setMobileMenuOpen(false);
+                }}
+                className="w-full py-2 px-3 rounded-lg text-xs font-bold text-[#FAF6EE] bg-[#2E3431] hover:bg-[#434A46] text-center border border-[#434A46]"
+              >
+                {isAuthenticated ? 'My Account Profile' : 'Sign In / Register'}
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -341,11 +367,11 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
                 }}
                 className="w-full py-2 px-3 rounded-lg text-xs font-bold text-[#D8ECE1] bg-[#1B4332] hover:bg-[#22573F] text-center border border-[#2D6A4F]"
               >
-                📖 About & User Guide
+                User Guide &amp; About
               </button>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between pt-1">
                 <span>{isOnline ? '● Online (PWA)' : '○ Offline Mode'}</span>
-                <span>v2.1</span>
+                <span>MSME Ledger v2.1</span>
               </div>
             </div>
           </div>
@@ -355,59 +381,77 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
       {/* --------------------------------------------------------------------- */}
       {/* 3. Main Content Area */}
       {/* --------------------------------------------------------------------- */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-[#FDFBF7]">
-        {/* Module Header Bar */}
-        <header className="bg-[#FAF6EE] border-b border-[#E5DCC5] px-4 py-4 md:px-8 md:py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 sticky top-0 md:static z-20 shadow-2xs">
+      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto overflow-x-hidden bg-[#FDFBF7]">
+        {/* Module Header Bar: Non-sticky on mobile to prevent overlapping */}
+        <header className="bg-[#FAF6EE] border-b border-[#E5DCC5] px-3.5 py-3 md:px-8 md:py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 static md:static z-20 shadow-2xs">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-xl md:text-2xl font-black text-[#141816] tracking-tight">
+              <h2 className="text-lg md:text-2xl font-black text-[#141816] tracking-tight">
                 {currentModule.label}
               </h2>
-              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-[#F3EDE0] text-[#363C39] border border-[#E5DCC5]">
+              <span className="text-2xs font-bold px-2 py-0.5 rounded-full bg-[#F3EDE0] text-[#363C39] border border-[#E5DCC5]">
                 Live Data
               </span>
             </div>
-            <p className="text-xs md:text-sm text-[#5C6460] mt-0.5 font-medium">
+            <p className="text-xs text-[#5C6460] mt-0.5 font-medium">
               {currentModule.description}
             </p>
           </div>
 
           {/* Contextual Action Slot */}
-          <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            {/* Guide Button */}
             <button
               type="button"
               onClick={() => onSelectTab('landing')}
               className="inline-flex items-center gap-1.5 text-xs font-bold text-[#1B4332] bg-[#D8ECE1] hover:bg-[#B2DAC5] border border-[#B2DAC5] px-3 py-2 rounded-lg transition-colors shadow-2xs"
               title="View guide and overview of all features"
             >
-              <span>📖</span>
-              <span>Guide & About</span>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+              </svg>
+              <span>Guide &amp; About</span>
             </button>
+
+            {/* Account / Sign In Trigger */}
+            <button
+              type="button"
+              onClick={() => setAuthModalOpen(true)}
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-[#FAF6EE] bg-[#141816] hover:bg-[#2E3431] border border-[#2E3431] px-3 py-2 rounded-lg transition-colors shadow-2xs"
+              title="Manage account authentication or sign in"
+            >
+              <svg className="w-3.5 h-3.5 text-[#D8ECE1]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              <span className="hidden sm:inline">{isAuthenticated ? user?.fullName || 'Account' : 'Sign In'}</span>
+            </button>
+
             {headerActions}
-            {pendingCount > 0 ? (
-              <button
-                type="button"
-                onClick={handleSyncClick}
-                className="hidden sm:inline-flex items-center gap-1.5 text-xs font-bold text-[#1B4332] bg-[#D8ECE1] border border-[#B2DAC5] px-3 py-2 rounded-lg hover:bg-[#B2DAC5] transition-colors shadow-2xs"
-                title="Click to check sync status"
-              >
-                <span className="w-2 h-2 rounded-full bg-[#1B4332] animate-pulse" />
-                <span>Pending Sync: {pendingCount}</span>
-              </button>
-            ) : (
-              <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-medium text-[#5C6460] bg-[#F3EDE0] border border-[#E5DCC5] px-3 py-2 rounded-lg shadow-2xs">
-                <span className="w-2 h-2 rounded-full bg-[#7E8684]" />
-                <span>Local Storage Clean</span>
-              </span>
-            )}
+
+            {/* Storage Diagnostics & Sync Button */}
+            <button
+              type="button"
+              onClick={() => setStorageModalOpen(true)}
+              className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg transition-colors shadow-2xs border ${
+                pendingCount > 0
+                  ? 'text-[#1B4332] bg-[#D8ECE1] border-[#B2DAC5] hover:bg-[#B2DAC5]'
+                  : 'text-[#5C6460] bg-[#F3EDE0] border-[#E5DCC5] hover:bg-[#EFE9DA]'
+              }`}
+              title="Click to view local storage diagnostics and manual sync"
+            >
+              <span className={`w-2 h-2 rounded-full ${pendingCount > 0 ? 'bg-[#1B4332] animate-pulse' : 'bg-[#7E8684]'}`} />
+              <span>{pendingCount > 0 ? `Pending Sync: ${pendingCount}` : 'Local Storage Clean'}</span>
+            </button>
           </div>
         </header>
 
-        {/* Module Body Content */}
+        {/* Read-Only State Notification Banner */}
         {isReadOnly && (
           <div className="bg-[#F3EDE0] border-b border-[#E5DCC5] text-[#141816] text-xs px-4 py-2.5 font-semibold flex items-center justify-between">
             <span className="flex items-center gap-2">
-              <span>⚠️</span>
+              <svg className="w-4 h-4 text-[#7A6E53] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
               <span><strong>Read-Only Mode:</strong> {statusMessage}</span>
             </span>
             <span className="text-2xs uppercase tracking-wider font-extrabold px-2 py-0.5 rounded bg-[#FAF6EE] text-[#141816] border border-[#E5DCC5]">
@@ -415,17 +459,30 @@ export default function AppShell({ activeTab, onSelectTab, headerActions, childr
             </span>
           </div>
         )}
-        <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto">
+
+        {/* Main Workspace */}
+        <main className="flex-1 p-3.5 sm:p-5 md:p-8 max-w-7xl w-full mx-auto">
           {children}
         </main>
 
-        {/* Global Legal Footer */}
+        {/* Legal Footer */}
         <footer className="bg-[#FAF6EE] border-t border-[#E5DCC5] px-4 py-4 text-center text-xs text-[#5C6460] mt-auto font-medium">
           <p>
-            &copy; {new Date().getFullYear()} Lukman Code Craft. MSME Ledger — Offline-first retail ERP for Nigerian businesses.
+            &copy; {new Date().getFullYear()} MSME Ledger. Resilient offline-first retail operating system.
           </p>
         </footer>
       </div>
+
+      {/* Global Modals */}
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+      />
+      <StorageDiagnosticsModal
+        isOpen={storageModalOpen}
+        onClose={() => setStorageModalOpen(false)}
+        onNavigateSettings={() => onSelectTab('settings')}
+      />
     </div>
   );
 }

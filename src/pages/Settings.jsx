@@ -234,7 +234,7 @@ export default function Settings() {
             </Button>
             {saveSuccess && (
               <span className="text-xs font-bold text-emerald-600 animate-in fade-in">
-                ✓ Shop name updated successfully!
+                Shop name updated successfully!
               </span>
             )}
           </div>
@@ -242,12 +242,12 @@ export default function Settings() {
       </div>
 
       {/* ------------------------------------------------------------------- */}
-      {/* 4. Manual Subscription & Bank Transfer Entitlements (SBM-042) */}
+      {/* 4. Manual Subscription & Bank Transfer Entitlements */}
       {/* ------------------------------------------------------------------- */}
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6 space-y-4">
         <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
           <div>
-            <h4 className="text-base font-bold text-slate-900 tracking-tight">Subscription & Entitlements (SBM-042)</h4>
+            <h4 className="text-base font-bold text-slate-900 tracking-tight">Subscription & Store Entitlements</h4>
             <p className="text-xs text-slate-500">Manual bank-transfer subscription workflow with offline entitlement protection</p>
           </div>
           <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
@@ -279,7 +279,7 @@ export default function Settings() {
           <div className="flex justify-between py-1 border-b border-slate-100">
             <span className="font-semibold text-slate-500">Anti-Clock-Tampering Guard:</span>
             <span className="font-mono text-slate-800">
-              {entitlementStatus === 'clock_tampered_locked' ? '🚨 Tampering Detected (Locked)' : '✓ Verified Synchronized'}
+              {entitlementStatus === 'clock_tampered_locked' ? 'Tampering Detected (Locked)' : 'Verified Synchronized'}
             </span>
           </div>
 

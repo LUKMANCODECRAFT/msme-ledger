@@ -59,6 +59,10 @@ export default function PointOfSale({ isReadOnly = false }) {
 
   const totalAmountNaira = totalAmountKobo / 100;
 
+  const totalItemCount = useMemo(() => {
+    return cartItems.reduce((acc, c) => acc + c.quantity, 0);
+  }, [cartItems]);
+
   // Add item to cart
   const handleAddToCart = (item) => {
     if ((item.stockCount || 0) <= 0) {
@@ -397,7 +401,7 @@ export default function PointOfSale({ isReadOnly = false }) {
       {/* ------------------------------------------------------------------- */}
       {/* Right Column: Order Cart & Cashier Checkout */}
       {/* ------------------------------------------------------------------- */}
-      <div className="w-full lg:w-96 shrink-0">
+      <div id="checkout-register-cart" className="w-full lg:w-96 shrink-0">
         <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-5 sticky top-20 space-y-5">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div>
@@ -699,7 +703,7 @@ export default function PointOfSale({ isReadOnly = false }) {
         <Modal
           isOpen={!!receiptData}
           onClose={() => setReceiptData(null)}
-          title="✓ Sale Finalized Successfully"
+          title="Sale Finalized Successfully"
           subtitle={`Ref: ${receiptData.saleId.slice(0, 8).toUpperCase()}`}
           maxWidth="sm"
         >
@@ -763,6 +767,28 @@ export default function PointOfSale({ isReadOnly = false }) {
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* Mobile Floating Sticky Checkout Shortcut */}
+      {cartItems.length > 0 && (
+        <div className="lg:hidden fixed bottom-4 left-4 right-4 z-30 animate-in slide-in-from-bottom-2 duration-200">
+          <button
+            type="button"
+            onClick={() => {
+              const cartEl = document.getElementById('checkout-register-cart');
+              if (cartEl) cartEl.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="w-full bg-[#1B4332] text-[#FAF6EE] py-3.5 px-5 rounded-2xl font-bold flex items-center justify-between shadow-xl active:scale-[0.99] transition-transform border border-[#143621]"
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="w-6 h-6 rounded-full bg-[#2D6A4F] text-[#FAF6EE] text-xs flex items-center justify-center font-bold">
+                {totalItemCount}
+              </span>
+              <span className="text-sm font-bold">View Cart & Checkout</span>
+            </div>
+            <span className="font-extrabold text-[#FAF6EE] text-base">{formatNaira(totalAmountKobo)} &darr;</span>
+          </button>
+        </div>
       )}
     </div>
   );

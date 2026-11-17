@@ -240,7 +240,7 @@ export default function Overview({ onNavigate }) {
               </div>
             ) : (
               <div className="overflow-x-auto flex-1">
-                <table className="w-full text-left border-collapse text-sm">
+                <table className="w-full min-w-[520px] text-left border-collapse text-sm">
                   <thead>
                     <tr className="bg-slate-50/70 border-b border-slate-100 text-slate-500 font-semibold text-xs uppercase tracking-wider">
                       <th className="py-3 px-4">Date</th>
@@ -296,7 +296,7 @@ export default function Overview({ onNavigate }) {
 
               {topDebtors.length === 0 ? (
                 <p className="text-xs text-slate-400 py-6 text-center">
-                  ✓ All customer balances are fully settled.
+                  All customer balances are fully settled.
                 </p>
               ) : (
                 <div className="space-y-3">

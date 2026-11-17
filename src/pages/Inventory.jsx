@@ -291,7 +291,7 @@ export default function Inventory({ isReadOnly = false }) {
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-sm">
+            <table className="w-full min-w-[620px] text-left border-collapse text-sm">
               <thead>
                 <tr className="bg-slate-50/70 border-b border-slate-200/80 text-slate-500 font-bold text-xs uppercase tracking-wider">
                   <th className="py-3.5 px-4">Item Name</th>

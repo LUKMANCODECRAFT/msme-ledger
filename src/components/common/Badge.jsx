@@ -52,11 +52,23 @@ export function PaymentStatusBadge({ status }) {
 }
 
 /**
- * Helper to get sync status badge automatically.
+ * Helper to get sync status badge automatically without emojis.
  */
 export function SyncStatusBadge({ status }) {
   if (status === 'synced') {
-    return <Badge variant="emerald">✓ Synced</Badge>;
+    return (
+      <Badge variant="emerald">
+        <svg className="w-3 h-3 text-[#1B4332]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+        </svg>
+        <span>Synced</span>
+      </Badge>
+    );
   }
-  return <Badge variant="amber">● Pending</Badge>;
+  return (
+    <Badge variant="amber">
+      <span className="w-1.5 h-1.5 rounded-full bg-[#7A6E53]" />
+      <span>Pending</span>
+    </Badge>
+  );
 }
