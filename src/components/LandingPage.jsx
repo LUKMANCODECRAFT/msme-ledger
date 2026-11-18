@@ -833,12 +833,14 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
             </div>
 
             {/* Pro Plan */}
-            <div className="p-6 sm:p-8 rounded-3xl bg-[#1B4332] text-[#FDFBF7] border border-[#143621] flex flex-col justify-between shadow-xl relative transform md:-translate-y-2">
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-[#D8ECE1] text-[#1B4332] text-2xs font-black uppercase tracking-wider border border-[#B2DAC5]">
-                Most Popular
-              </div>
+            <div className="p-6 sm:p-8 rounded-3xl bg-[#1B4332] text-[#FDFBF7] border border-[#143621] flex flex-col justify-between shadow-md">
               <div>
-                <div className="text-2xs font-black uppercase tracking-wider text-[#D8ECE1] mb-2">Merchant Pro</div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-2xs font-black uppercase tracking-wider text-[#D8ECE1]">Merchant Pro</span>
+                  <span className="text-2xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#2D6A4F] text-[#D8ECE1] border border-[#3E8662]">
+                    Popular
+                  </span>
+                </div>
                 <h3 className="text-xl sm:text-2xl font-black text-[#FDFBF7] mb-1">Pro Store</h3>
                 <p className="text-xs text-[#D8ECE1] mb-6 font-medium">For established retail shops and agro-dealers.</p>
                 <div className="text-3xl sm:text-4xl font-black text-[#FDFBF7] mb-6">
@@ -963,7 +965,7 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
                 <div>
                   <div className="w-7 h-7 rounded-full bg-[#1B4332] text-[#FDFBF7] font-bold flex items-center justify-center text-xs mb-3">2</div>
                   <h4 className="font-bold text-[#141816] mb-1">Make Direct Transfer</h4>
-                  <p className="text-[#5C6460] leading-relaxed">Transfer the plan fee (₦5,000 for Pro or ₦15,000 for Enterprise) from your bank app or USSD to the official account below. Include your reference in the transfer narration.</p>
+                  <p className="text-[#5C6460] leading-relaxed">Transfer the plan fee (₦5,000 for Pro or ₦15,000 for Enterprise) from your bank app or USSD to the official account shown in Settings. Include your reference code in the transfer narration.</p>
                 </div>
               </div>
 
@@ -976,23 +978,26 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
               </div>
             </div>
 
-            {/* Official Account Details Card */}
-            <div className="p-4 rounded-2xl bg-[#FDFBF7] border border-[#E5DCC5]">
-              <div className="text-2xs font-bold uppercase tracking-wider text-[#5C6460] mb-2">Official Subscription Account Details</div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                <div>
-                  <span className="text-[#7E8684] block text-2xs">Bank Name:</span>
-                  <span className="font-bold text-[#141816] text-sm">UBA</span>
+            {/* On-Demand Bank Account Instructions */}
+            <div className="p-4 rounded-2xl bg-[#FDFBF7] border border-[#E5DCC5] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-[#D8ECE1] text-[#1B4332] flex items-center justify-center font-bold shrink-0">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  </svg>
                 </div>
                 <div>
-                  <span className="text-[#7E8684] block text-2xs">Account Name:</span>
-                  <span className="font-bold text-[#141816] text-sm">Lukman Yerima Ismail</span>
-                </div>
-                <div>
-                  <span className="text-[#7E8684] block text-2xs">Account Number:</span>
-                  <span className="font-extrabold text-[#1B4332] font-mono text-sm tracking-wider">2453591351</span>
+                  <h4 className="font-bold text-[#141816]">On-Demand Payment Instructions</h4>
+                  <p className="text-[#5C6460]">Official bank details and your unique payment reference are displayed when requested inside <strong>Settings &rarr; Subscription</strong>.</p>
                 </div>
               </div>
+              <button
+                type="button"
+                onClick={handlePrimaryAction}
+                className="shrink-0 px-4 py-2 rounded-xl bg-[#1B4332] text-[#FDFBF7] text-xs font-bold hover:bg-[#22573F] transition-colors"
+              >
+                {existingShopName ? 'Open Settings' : 'Launch Free'}
+              </button>
             </div>
           </div>
         </div>
@@ -1096,10 +1101,6 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
               <a href="#offline" className="hover:text-[#FDFBF7] transition-colors">Why Offline</a>
               <a href="#pricing" className="hover:text-[#FDFBF7] transition-colors">Pricing</a>
               <a href="#faq" className="hover:text-[#FDFBF7] transition-colors">FAQ</a>
-            </div>
-
-            <div className="text-2xs text-[#7E8684]">
-              v2.1 • Forest Green, Sand &amp; Charcoal
             </div>
           </div>
 
