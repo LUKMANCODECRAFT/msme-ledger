@@ -982,15 +982,15 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                 <div>
                   <span className="text-[#7E8684] block text-2xs">Bank Name:</span>
-                  <span className="font-bold text-[#141816] text-sm">Zenith Bank PLC</span>
+                  <span className="font-bold text-[#141816] text-sm">UBA</span>
                 </div>
                 <div>
                   <span className="text-[#7E8684] block text-2xs">Account Name:</span>
-                  <span className="font-bold text-[#141816] text-sm">MSME Ledger Technologies Ltd</span>
+                  <span className="font-bold text-[#141816] text-sm">Lukman Yerima Ismail</span>
                 </div>
                 <div>
                   <span className="text-[#7E8684] block text-2xs">Account Number:</span>
-                  <span className="font-extrabold text-[#1B4332] font-mono text-sm tracking-wider">1012345678</span>
+                  <span className="font-extrabold text-[#1B4332] font-mono text-sm tracking-wider">2453591351</span>
                 </div>
               </div>
             </div>

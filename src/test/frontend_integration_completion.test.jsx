@@ -250,8 +250,8 @@ describe('Frontend 9-Module Integration & Architecture Suite', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Official Bank Transfer Instructions:')).toBeDefined();
-        expect(screen.getByText('Zenith Bank PLC')).toBeDefined();
-        expect(screen.getByText('1012345678')).toBeDefined();
+        expect(screen.getByText('UBA')).toBeDefined();
+        expect(screen.getByText('2453591351')).toBeDefined();
       });
     });
   });

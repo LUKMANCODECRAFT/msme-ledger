@@ -82,9 +82,9 @@ export function SubscriptionProvider({ children, initialEntitlement = null }) {
       // In offline mode or when backend is unavailable, return local fallback without hardcoded fake keys
       return {
         bankDetails: {
-          bankName: 'Zenith Bank PLC',
-          accountName: 'MSME Ledger Technologies Ltd',
-          accountNumber: '1012345678'
+          bankName: 'UBA',
+          accountName: 'Lukman Yerima Ismail',
+          accountNumber: '2453591351'
         },
         paymentReference: `REF-SB-${Date.now().toString(16).toUpperCase()}`,
         plans: [

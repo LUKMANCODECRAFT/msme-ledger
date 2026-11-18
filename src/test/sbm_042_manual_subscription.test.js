@@ -110,8 +110,8 @@ describe('SBM-042: Manual Subscription & Offline Entitlements Suite', () => {
       const instructions = subscriptionService.getInstructions({ businessId: 'biz_sample' });
 
       expect(instructions.bankDetails).toBeDefined();
-      expect(instructions.bankDetails.bankName).toBe('Zenith Bank PLC');
-      expect(instructions.bankDetails.accountNumber).toBe('1012345678');
+      expect(instructions.bankDetails.bankName).toBe('UBA');
+      expect(instructions.bankDetails.accountNumber).toBe('2453591351');
       expect(instructions.paymentReference).toMatch(/^REF-SB-[A-F0-9]{8}$/);
       expect(instructions.plans.length).toBe(2);
       expect(instructions.plans[0].id).toBe('pro');

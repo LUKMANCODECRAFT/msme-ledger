@@ -72,9 +72,9 @@ export class SubscriptionService {
     }
 
     this.bankConfig = Object.freeze({
-      bankName: process.env.BANK_NAME || options.bankConfig?.bankName || 'Zenith Bank PLC',
-      accountName: process.env.BANK_ACCOUNT_NAME || options.bankConfig?.accountName || 'MSME Ledger Technologies Ltd',
-      accountNumber: process.env.BANK_ACCOUNT_NUMBER || options.bankConfig?.accountNumber || '1012345678'
+      bankName: process.env.BANK_NAME || options.bankConfig?.bankName || 'UBA',
+      accountName: process.env.BANK_ACCOUNT_NAME || options.bankConfig?.accountName || 'Lukman Yerima Ismail',
+      accountNumber: process.env.BANK_ACCOUNT_NUMBER || options.bankConfig?.accountNumber || '2453591351'
     });
   }
 
