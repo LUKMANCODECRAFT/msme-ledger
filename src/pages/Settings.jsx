@@ -296,9 +296,20 @@ export default function Settings() {
         {/* Dynamic Bank Instructions Trigger */}
         <div className="pt-2">
           {!instructionsData ? (
-            <Button variant="outline" size="sm" onClick={handleLoadInstructions}>
-              Get Dynamic Bank Payment Details (REF-SB-XXXX)
-            </Button>
+            <div className="p-4 bg-[#FAF6EE] rounded-xl border border-[#E5DCC5] text-xs space-y-3">
+              <div className="flex items-center justify-between border-b border-[#E5DCC5] pb-2">
+                <span className="font-bold text-[#141816]">Official Subscription Bank Transfer</span>
+                <span className="text-2xs font-semibold px-2 py-0.5 rounded bg-[#D8ECE1] text-[#1B4332] border border-[#B2DAC5]">
+                  Manual Transfer
+                </span>
+              </div>
+              <p className="text-xs text-[#5C6460] leading-relaxed">
+                We accept subscription payments via direct bank transfer from any Nigerian bank app or USSD. Click the button below to generate your unique reference code and reveal the designated transfer account.
+              </p>
+              <Button variant="primary" size="sm" onClick={handleLoadInstructions}>
+                Get Dynamic Bank Payment Details (REF-SB-XXXX)
+              </Button>
+            </div>
           ) : (
             <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2">
               <div className="flex items-center justify-between border-b border-slate-200 pb-2">

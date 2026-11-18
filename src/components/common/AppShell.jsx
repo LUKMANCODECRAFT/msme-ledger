@@ -4,7 +4,6 @@ import { pushPendingData } from '../../services/syncService.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useSubscription } from '../../context/SubscriptionContext.jsx';
 import BrandLogo from './BrandLogo.jsx';
-import AuthModal from './AuthModal.jsx';
 import StorageDiagnosticsModal from './StorageDiagnosticsModal.jsx';
 
 export const MODULE_ITEMS = [
@@ -108,7 +107,6 @@ export default function AppShell({
   headerActions
 }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [authModalOpen, setAuthModalOpen] = useState(false);
   const [storageModalOpen, setStorageModalOpen] = useState(false);
 
   const pendingCount = usePendingSyncCount();
@@ -196,23 +194,8 @@ export default function AppShell({
           })}
         </nav>
 
-        {/* Sidebar Footer: Account, Guide & Connectivity */}
+        {/* Sidebar Footer: Guide & Connectivity */}
         <div className="p-4 border-t border-[#2E3431] text-xs text-[#A9AFAA] space-y-2">
-          {/* Account / Sign In Trigger */}
-          <button
-            type="button"
-            onClick={() => setAuthModalOpen(true)}
-            className="w-full flex items-center justify-between py-2 px-3 rounded-lg text-xs font-bold text-[#FAF6EE] bg-[#2E3431] hover:bg-[#434A46] transition-colors border border-[#434A46]"
-          >
-            <span className="flex items-center gap-2">
-              <svg className="w-3.5 h-3.5 text-[#D8ECE1]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-              </svg>
-              <span className="truncate">{isAuthenticated ? user?.fullName || 'My Account' : 'Sign In / Account'}</span>
-            </span>
-            <span className="text-2xs text-[#D8ECE1]">{isAuthenticated ? 'Online' : 'Login'}</span>
-          </button>
-
           {/* User Guide Button */}
           <button
             type="button"
@@ -271,18 +254,6 @@ export default function AppShell({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Mobile Auth Button */}
-          <button
-            type="button"
-            onClick={() => setAuthModalOpen(true)}
-            className="p-1.5 rounded-lg bg-[#2E3431] text-[#D8ECE1] text-xs font-bold border border-[#434A46]"
-            aria-label="Account details"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-            </svg>
-          </button>
-
           {/* Mobile Storage Diagnostics Button */}
           <button
             type="button"
@@ -352,16 +323,6 @@ export default function AppShell({
               <button
                 type="button"
                 onClick={() => {
-                  setAuthModalOpen(true);
-                  setMobileMenuOpen(false);
-                }}
-                className="w-full py-2 px-3 rounded-lg text-xs font-bold text-[#FAF6EE] bg-[#2E3431] hover:bg-[#434A46] text-center border border-[#434A46]"
-              >
-                {isAuthenticated ? 'My Account Profile' : 'Sign In / Register'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
                   onSelectTab('landing');
                   setMobileMenuOpen(false);
                 }}
@@ -413,19 +374,6 @@ export default function AppShell({
               <span>Guide &amp; About</span>
             </button>
 
-            {/* Account / Sign In Trigger */}
-            <button
-              type="button"
-              onClick={() => setAuthModalOpen(true)}
-              className="inline-flex items-center gap-1.5 text-xs font-bold text-[#FAF6EE] bg-[#141816] hover:bg-[#2E3431] border border-[#2E3431] px-3 py-2 rounded-lg transition-colors shadow-2xs"
-              title="Manage account authentication or sign in"
-            >
-              <svg className="w-3.5 h-3.5 text-[#D8ECE1]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-              </svg>
-              <span className="hidden sm:inline">{isAuthenticated ? user?.fullName || 'Account' : 'Sign In'}</span>
-            </button>
-
             {headerActions}
 
             {/* Storage Diagnostics & Sync Button */}
@@ -474,10 +422,6 @@ export default function AppShell({
       </div>
 
       {/* Global Modals */}
-      <AuthModal
-        isOpen={authModalOpen}
-        onClose={() => setAuthModalOpen(false)}
-      />
       <StorageDiagnosticsModal
         isOpen={storageModalOpen}
         onClose={() => setStorageModalOpen(false)}

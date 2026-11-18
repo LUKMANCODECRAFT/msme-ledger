@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import Onboarding from './Onboarding.jsx';
 import BrandLogo from './common/BrandLogo.jsx';
-import AuthModal from './common/AuthModal.jsx';
 
 export default function LandingPage({ onComplete, onLaunchApp }) {
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [authModalOpen, setAuthModalOpen] = useState(false);
   const [activeGuideStep, setActiveGuideStep] = useState(0);
   const [openFaqIndex, setOpenFaqIndex] = useState(null);
   const [existingShopName, setExistingShopName] = useState(null);
@@ -224,8 +222,8 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
       a: 'We strictly reject automated recurring card debits. Subscriptions are handled via transparent manual bank transfer. You request dynamic instructions with a unique reference code, transfer directly from your bank app, and submit your reference. Once verified by our team, your offline entitlement token is issued.'
     },
     {
-      q: 'Are we supposed to have a login page, or can I use it offline?',
-      a: 'You can do both! For normal everyday selling, you do NOT have to log in—it runs 100% offline with zero setup. If you want to sync between multiple devices (like a cashier tablet and owner phone) or invite staff with roles (Owner, Manager, Cashier), you can sign in anytime via the Account button.'
+      q: 'Do I need to create an account or sign in to use MSME Ledger?',
+      a: 'No! MSME Ledger is 100% offline-first and requires no account creation, passwords, or login. You can launch the app immediately and start recording sales, managing stock, and tracking customer credit directly on your device with complete privacy and zero internet requirement.'
     }
   ];
 
@@ -262,15 +260,6 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
 
           {/* Action CTAs */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            {/* Account / Sign In Trigger */}
-            <button
-              type="button"
-              onClick={() => setAuthModalOpen(true)}
-              className="px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold text-[#141816] hover:bg-[#F3EDE0] transition-colors border border-[#E5DCC5]"
-            >
-              Sign In
-            </button>
-
             {/* Launch App Button */}
             <button
               type="button"
@@ -942,6 +931,70 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
               </button>
             </div>
           </div>
+
+          {/* How Payment & Bank Transfer Works Banner */}
+          <div className="mt-12 max-w-4xl mx-auto p-6 sm:p-8 rounded-3xl bg-[#FAF6EE] border border-[#E5DCC5] shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 pb-4 border-b border-[#E5DCC5]">
+              <div>
+                <span className="text-2xs font-black uppercase tracking-wider text-[#1B4332] bg-[#D8ECE1] px-2.5 py-1 rounded-full border border-[#B2DAC5]">
+                  Payment Guide
+                </span>
+                <h3 className="text-lg sm:text-xl font-black text-[#141816] mt-1.5">How Subscription Bank Transfer Works</h3>
+              </div>
+              <div className="text-xs text-[#5C6460] font-semibold">
+                No cards or recurring auto-debits
+              </div>
+            </div>
+
+            <p className="text-xs sm:text-sm text-[#363C39] font-medium mb-6 leading-relaxed">
+              We never ask for your debit card details. To upgrade or renew your subscription, follow these 3 transparent steps:
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs mb-6">
+              <div className="p-4 rounded-2xl bg-[#FDFBF7] border border-[#E5DCC5] flex flex-col justify-between">
+                <div>
+                  <div className="w-7 h-7 rounded-full bg-[#1B4332] text-[#FDFBF7] font-bold flex items-center justify-center text-xs mb-3">1</div>
+                  <h4 className="font-bold text-[#141816] mb-1">Get Your Unique Reference</h4>
+                  <p className="text-[#5C6460] leading-relaxed">Go to <strong>Settings &rarr; Subscription</strong> to view your unique transfer reference code (e.g. <code>REF-SB-XXXX</code>).</p>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#FDFBF7] border border-[#E5DCC5] flex flex-col justify-between">
+                <div>
+                  <div className="w-7 h-7 rounded-full bg-[#1B4332] text-[#FDFBF7] font-bold flex items-center justify-center text-xs mb-3">2</div>
+                  <h4 className="font-bold text-[#141816] mb-1">Make Direct Transfer</h4>
+                  <p className="text-[#5C6460] leading-relaxed">Transfer the plan fee (₦5,000 for Pro or ₦15,000 for Enterprise) from your bank app or USSD to the official account below. Include your reference in the transfer narration.</p>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#FDFBF7] border border-[#E5DCC5] flex flex-col justify-between">
+                <div>
+                  <div className="w-7 h-7 rounded-full bg-[#1B4332] text-[#FDFBF7] font-bold flex items-center justify-center text-xs mb-3">3</div>
+                  <h4 className="font-bold text-[#141816] mb-1">Submit Proof &amp; Unlock</h4>
+                  <p className="text-[#5C6460] leading-relaxed">Enter your payment reference on the Settings page. Your cryptographic offline license token is generated and activates your store.</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Official Account Details Card */}
+            <div className="p-4 rounded-2xl bg-[#FDFBF7] border border-[#E5DCC5]">
+              <div className="text-2xs font-bold uppercase tracking-wider text-[#5C6460] mb-2">Official Subscription Account Details</div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div>
+                  <span className="text-[#7E8684] block text-2xs">Bank Name:</span>
+                  <span className="font-bold text-[#141816] text-sm">Zenith Bank PLC</span>
+                </div>
+                <div>
+                  <span className="text-[#7E8684] block text-2xs">Account Name:</span>
+                  <span className="font-bold text-[#141816] text-sm">MSME Ledger Technologies Ltd</span>
+                </div>
+                <div>
+                  <span className="text-[#7E8684] block text-2xs">Account Number:</span>
+                  <span className="font-extrabold text-[#1B4332] font-mono text-sm tracking-wider">1012345678</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -1056,12 +1109,6 @@ export default function LandingPage({ onComplete, onLaunchApp }) {
           </div>
         </div>
       </footer>
-
-      {/* Auth Modal Triggerable from Landing Page Navbar */}
-      <AuthModal
-        isOpen={authModalOpen}
-        onClose={() => setAuthModalOpen(false)}
-      />
     </div>
   );
 }
